@@ -2,24 +2,24 @@ import * as store from "./store.js";
 import { state } from "./store.js";
 import { getPosition, reverseGeocode, mapLink, mapEmbedUrl, permissionState, geoDebug } from "./geo.js";
 import * as rv from "./review.js";
-import { mountLava } from "./lava.js";
 
 /* ============================================================
    Constants
    ============================================================ */
 
 const APP_NAME = "NameApp"; // working title — change here
-const APP_VERSION = "8";
+const APP_VERSION = "9";
 const EVENT_WINDOW_MS = 4 * 60 * 60 * 1000; // captures within 4h join the current event
 
-// Default categories. Users can rename them, change the emoji and add their own (stored in "categories").
+// Default categories. Users can rename them, change the colour and add their own (stored in "categories").
+// Each category has a colour pair; a new event takes its category's colour, so its cards match.
 const DEFAULT_CATEGORIES = [
-  { id: "friend", label: "Friend", emoji: "🧡", order: 0 },
-  { id: "family", label: "Family", emoji: "🏠", order: 1 },
-  { id: "work", label: "Work", emoji: "💼", order: 2 },
-  { id: "school", label: "School", emoji: "🎒", order: 3 },
-  { id: "gym", label: "Gym", emoji: "🏋️", order: 4 },
-  { id: "other", label: "Other", emoji: "✨", order: 99 },
+  { id: "friend", label: "Friend", color: "orange", emoji: "🧡", order: 0 },
+  { id: "family", label: "Family", color: "pink", emoji: "🏠", order: 1 },
+  { id: "work", label: "Work", color: "yellow", emoji: "💼", order: 2 },
+  { id: "school", label: "School", color: "green", emoji: "🎒", order: 3 },
+  { id: "gym", label: "Gym", color: "wine", emoji: "🏋️", order: 4 },
+  { id: "other", label: "Other", color: "grey", emoji: "✨", order: 99 },
 ];
 const LEGACY_CATEGORY = { friends: "friend", neighbours: "other" };
 const EMOJI_CHOICES = [
@@ -62,7 +62,9 @@ const EVENT_COLORS = [
   { id: "yellow", bg: "#f7ce46", fg: "#3e310a" },
   { id: "green", bg: "#8eae40", fg: "#2a360d" },
   { id: "wine", bg: "#651d28", fg: "#ec682c" },
+  { id: "grey", bg: "#ededed", fg: "#211e1f" },
 ];
+const catColor = (c) => EVENT_COLORS.find((x) => x.id === c?.color) || EVENT_COLORS[hashIndex(c?.id || "x", 5)];
 function hashIndex(str, n) {
   let x = 0;
   for (const ch of String(str)) x = (x * 31 + ch.charCodeAt(0)) >>> 0;
@@ -86,6 +88,7 @@ function nextEventColor() {
   return EVENT_COLORS[idx].id;
 }
 const colorStyle = (c) => `--ev-bg:${c.bg};--ev-fg:${c.fg}`;
+const colorDot = (c) => h("i", { class: "c-dot", style: colorStyle(c), "aria-hidden": "true" });
 
 /* ============================================================
    Tiny DOM helper
@@ -222,7 +225,6 @@ function peopleIn(eventId) {
 const view = document.getElementById("view");
 let currentKey = null;
 let lastRouteName = null;
-let stopLava = null;
 
 function parseRoute() {
   const [name, arg] = location.hash.replace(/^#\/?/, "").split("/");
@@ -262,14 +264,7 @@ function render(force) {
   if (!state.ready && r.name !== "settings") {
     view.replaceChildren(h("div", { class: "empty" }, h("span", { class: "emoji" }, "⏳"), "Loading…"));
   } else {
-    stopLava?.();
-    stopLava = null;
     view.replaceChildren(fn(r.arg));
-    const canvas = view.querySelector("canvas.lava");
-    if (canvas) requestAnimationFrame(() => {
-      stopLava = mountLava(canvas);
-      if (!stopLava) canvas.closest(".donut")?.classList.add("no-webgl");
-    });
   }
   view.dataset.ready = state.ready ? "1" : "0";
   updateTabs(r);
@@ -345,21 +340,23 @@ function viewHome() {
 
     state.error && h("div", { class: "banner error" }, state.error),
 
-    h("h1", { class: "hero" }, ev ? ["Met someone", h("br"), "else?"] : ["Met", h("br"), "someone?"]),
+    h("h1", { class: "hero" }, "Met", h("br"), "someone?"),
 
-    ev && h("div", { class: "event-pill", style: colorStyle(eventColor(ev)) },
-      h("span", { class: "dot" }),
-      h("span", { class: "grow" }, ev.name, h("span", { class: "sub" }, ` · ${peopleIn(ev.id).length} met`)),
-      h("button", { class: "mini-btn", onclick: () => { store.putEvent({ ...ev, endedAt: Date.now() }); toast("Event ended"); } }, "End")),
+    // Fixed-height slot: the running event sits here, so nothing else moves when it appears.
+    h("div", { class: "event-slot" },
+      ev
+        ? h("div", { class: "event-pill", style: colorStyle(eventColor(ev)) },
+            h("span", { class: "grow" }, ev.name, h("span", { class: "sub" }, ` · ${peopleIn(ev.id).length} met`)),
+            h("button", { class: "mini-btn", onclick: () => { store.putEvent({ ...ev, endedAt: Date.now() }); toast("Event ended"); } }, "End"))
+        : h("p", { class: "slot-hint" }, "Tap right after you meet someone")),
 
     fitDonut(h("div", { class: "donut-wrap" },
       h("button", { class: "donut", id: "big-btn", "aria-label": "Met someone — add a name", onclick: () => { haptic(); go("capture"); } },
-        h("canvas", { class: "lava", "aria-hidden": "true" }),
         h("span", { class: "donut-plus", "aria-hidden": "true" }, "+")))),
 
     h("div", { class: "stats" },
       h("button", { class: "stat", onclick: () => go("people") }, h("span", { class: "k" }, "Met"), h("span", { class: "v" }, state.people.length)),
-      h("button", { class: "stat review", onclick: () => go("review") }, h("span", { class: "k" }, "To review"), h("span", { class: "v" }, due))),
+      h("button", { class: "stat review", onclick: () => go("review") }, h("span", { class: "k" }, "Review"), h("span", { class: "v" }, due))),
 
     installBanner(),
     state.mode === "local" && state.people.length === 0 &&
@@ -404,8 +401,8 @@ function viewCapture() {
       h("p", { class: "sub" }, "Asked once — everyone you add in the next few hours joins this event."),
       h("div", { class: "grid2" },
         categories().map((r) =>
-          h("button", { class: "tile", onclick: () => { haptic(); c.relation = r.id; c.eventId = null; c.step = "names"; rerenderCapture(); } },
-            h("span", { class: "emoji" }, r.emoji), r.label))),
+          h("button", { class: "tile cat-tile", style: colorStyle(catColor(r)), onclick: () => { haptic(); c.relation = r.id; c.eventId = null; c.step = "names"; rerenderCapture(); } },
+            h("i", { class: "cat-dot" }), r.label))),
       h("p", { class: "hint", style: "margin-top:16px" }, h("button", { class: "link-btn", onclick: () => go("categories") }, "Edit categories")));
   }
 
@@ -439,8 +436,8 @@ function viewCapture() {
       head(null),
       h("h1", {}, c.names.length ? "Anyone else?" : "Name?"),
       h("p", { class: "sub" },
-        ev ? [`${rel(ev.relation).emoji} ${ev.name} · `, h("button", { class: "link-btn", onclick: () => { c.step = "relation"; c.eventId = null; rerenderCapture(); } }, "new event")]
-           : [`${rel(c.relation).emoji} New event · ${rel(c.relation).label} · `, h("button", { class: "link-btn", onclick: back("relation") }, "change")]),
+        ev ? [colorDot(eventColor(ev)), `${ev.name} · `, h("button", { class: "link-btn", onclick: () => { c.step = "relation"; c.eventId = null; rerenderCapture(); } }, "new event")]
+           : [colorDot(catColor(rel(c.relation))), `New ${rel(c.relation).label} event · `, h("button", { class: "link-btn", onclick: back("relation") }, "change")]),
       c.names.length > 0 && h("div", { class: "added" },
         c.names.map((n, idx) => h("button", { class: "chip on", "aria-label": `Remove ${n}`, onclick: () => { c.names.splice(idx, 1); rerenderCapture(); } }, n, h("span", { class: "x" }, "✕")))),
       input,
@@ -576,7 +573,7 @@ function saveCapture() {
       startedAt: now,
       lastAt: now,
       location: null,
-      color: nextEventColor(),
+      color: catColor(rel(c.relation || "other")).id,
     };
     createdEvent = true;
   } else {
@@ -680,8 +677,8 @@ function viewPeople() {
   });
 
   const relChips = h("div", { class: "chips scroll" },
-    [{ id: "all", label: "All" }, ...categories().map((r) => ({ id: r.id, label: `${r.emoji} ${r.label}` })), { id: "star", label: "⭐ See again" }]
-      .map((o) => h("button", { class: "chip" + (filter.relation === o.id ? " on" : ""), onclick: () => { filter.relation = o.id; render(true); } }, o.label)));
+    [{ id: "all", label: "All" }, ...categories().map((r) => ({ id: r.id, label: r.label, dot: catColor(r) })), { id: "star", label: "⭐ See again" }]
+      .map((o) => h("button", { class: "chip" + (filter.relation === o.id ? " on" : ""), onclick: () => { filter.relation = o.id; render(true); } }, o.dot ? colorDot(o.dot) : "", o.label)));
 
   if (!state.events.some((e) => e.id === filter.eventId)) filter.eventId = "all";
   const active = filter.relation !== "all" || filter.eventId !== "all";
@@ -719,11 +716,11 @@ function eventGroup(eventId, ps, redraw, forceOpen) {
   ps.sort((a, b) => b.createdAt - a.createdAt);
   const toggle = () => { if (!ev) return; setCollapsed(ev.id, !closed); haptic(6); redraw(); };
 
-  const head = h("div", { class: "ev-row" + (closed ? "" : " open"), style: colorStyle(col) },
-    h("button", { class: "ev-sq", "aria-label": ev ? `Edit ${ev.name}` : "Other", onclick: () => { if (!ev) return; editingEvent = editingEvent === ev.id ? null : ev.id; redraw(); } }, h("i")),
-    h("button", { class: "ev-label", "aria-expanded": String(!closed), onclick: toggle },
+  const head = h("div", { class: "ev-head" },
+    h("button", { class: "ev-title", "aria-expanded": String(!closed), onclick: toggle },
       h("span", { class: "ev-name" }, ev ? ev.name : "Other"),
-      h("span", { class: "ev-meta" }, [ev && fmtDate(ev.startedAt), `${ps.length}`].filter(Boolean).join(" · "))));
+      h("span", { class: "ev-meta" }, [ev && fmtDate(ev.startedAt), `${ps.length} ${ps.length === 1 ? "person" : "people"}`, closed ? "show" : ""].filter(Boolean).join(" · "))),
+    ev && h("button", { class: "ev-edit-btn", onclick: () => { editingEvent = editingEvent === ev.id ? null : ev.id; redraw(); } }, "Edit"));
 
   const edit = ev && editingEvent === ev.id && h("div", { class: "ev-edit" },
     h("input", { class: "text-input", value: ev.name, "aria-label": "Event name", maxlength: "40",
@@ -813,7 +810,7 @@ function card(p, redraw) {
     row("When", `${fmtDay(p.createdAt)}, ${fmtTime(p.createdAt)}`),
     row("Where", place || (loc ? "Location saved" : "No location")),
     row("How it was", v ? `${v.emoji} ${v.label}` : "—"),
-    row("Category", `${c.emoji} ${c.label}`),
+    row("Category", c.label),
     h("div", { class: "pc-row stacked" },
       h("span", { class: "pc-k" }, "Remember"),
       (p.hooks || []).length
@@ -870,7 +867,7 @@ function viewPerson(id) {
   });
 
   const r = p.review || rv.newReview(p.createdAt);
-  const memoryLine = r.known ? "You know this name ✓" : `Next review ${fmtIn(r.due)}`;
+  const memoryLine = r.known ? "You know this name ✓" : !r.last ? "Not practised yet" : `Next review ${fmtIn(r.due)}`;
 
   return h("div", {},
     h("div", { class: "topbar" }, iconBtn("back", "Back", () => history.length > 1 ? history.back() : go("people"))),
@@ -934,7 +931,7 @@ function viewPerson(id) {
         h("div", { class: "lbl", style: "margin:0" }, "Category"),
         h("button", { class: "link-btn", style: "padding:0", onclick: () => go("categories") }, "Edit")),
       h("div", { class: "chips" },
-        categories().map((c) => h("button", { class: "chip" + (rel(p.relation).id === c.id ? " on" : ""), onclick: () => { save({ relation: c.id }); render(true); } }, `${c.emoji} ${c.label}`)))),
+        categories().map((c) => h("button", { class: "chip" + (rel(p.relation).id === c.id ? " on" : ""), onclick: () => { save({ relation: c.id }); render(true); } }, colorDot(catColor(c)), c.label)))),
 
     h("div", { class: "section row" },
       h("div", {}, h("div", { class: "lbl", style: "margin-bottom:2px" }, "Memory"), h("span", { class: "muted" }, memoryLine)),
@@ -1016,7 +1013,7 @@ function viewReview() {
     h("div", { class: "rv-progress" }, h("i", { style: `width:${(s.i / ids.length) * 100}%` })),
     h("div", { class: "flash", style: colorStyle(personColor(p)) },
       h("div", { class: "ctx" },
-        h("b", {}, ev ? `${rel(ev.relation).emoji} ${ev.name}` : rel(p.relation).label), h("br"),
+        h("b", {}, ev ? ev.name : rel(p.relation).label), h("br"),
         [fmtDay(p.createdAt), placeLine(p.location)].filter(Boolean).join(" · ")),
       (v || p.seeAgain) && h("div", { class: "vibe-line" }, v ? `${v.emoji} ${v.label}` : "", p.seeAgain ? "  ⭐ Want to see again" : ""),
       (p.hooks || []).length > 0 && h("div", { class: "chips hooks" }, p.hooks.map((hk) => h("span", { class: "chip" }, hk))),
@@ -1120,7 +1117,7 @@ function viewSettings() {
   const cats = categories();
   const catSection = h("div", { class: "section stack" },
     h("div", { class: "lbl" }, "Categories"),
-    h("p", { style: "margin:0" }, cats.map((c) => `${c.emoji} ${c.label}`).join("   ")),
+    h("div", { class: "chips" }, cats.map((c) => h("span", { class: "chip" }, colorDot(catColor(c)), c.label))),
     h("button", { class: "btn secondary", onclick: () => go("categories") }, "Rename or add categories"));
 
   const diagOut = h("div", { class: "diag", hidden: true });
@@ -1279,30 +1276,28 @@ function firstGrapheme(str) {
 
 function viewCategories() {
   const list = categories();
-  const saveCat = (c, patch) => store.putCategory({ id: c.id, label: c.label, emoji: c.emoji, order: c.order ?? 50, ...patch });
+  const saveCat = (c, patch) => store.putCategory({ id: c.id, label: c.label, color: c.color, emoji: c.emoji, order: c.order ?? 50, ...patch });
   const inUse = (id) => state.people.some((p) => rel(p.relation).id === id) || state.events.some((e) => rel(e.relation).id === id);
 
   const rows = list.map((c) => {
+    const col = catColor(c);
     const nameInput = h("input", {
       class: "text-input", value: c.label, "aria-label": `Name for ${c.label}`, maxlength: "24", autocapitalize: "words",
       onchange: (e) => { const v = e.target.value.trim(); if (v && v !== c.label) { saveCat(c, { label: v }); toast("Saved"); } else e.target.value = c.label; },
       onkeydown: (e) => { if (e.key === "Enter") e.target.blur(); },
     });
     const row = h("div", { class: "cat-row" },
-      h("button", { class: "cat-emoji" + (emojiFor === c.id ? " on" : ""), "aria-label": `Change emoji for ${c.label}`, onclick: () => { emojiFor = emojiFor === c.id ? null : c.id; render(true); } }, c.emoji),
+      h("button", { class: "cat-sw" + (emojiFor === c.id ? " on" : ""), style: colorStyle(col), "aria-label": `Change colour for ${c.label}`,
+        onclick: () => { emojiFor = emojiFor === c.id ? null : c.id; render(true); } }, h("i")),
       nameInput,
       c.id !== "other" && !inUse(c.id)
         ? h("button", { class: "icon-btn", "aria-label": `Delete ${c.label}`, onclick: () => { if (confirm(`Delete “${c.label}”?`)) { saveCat(c, { deleted: true }); render(true); } } }, icon("close"))
         : h("span", { style: "width:44px;flex:0 0 auto" }));
     if (emojiFor !== c.id) return row;
-    const custom = h("input", {
-      class: "text-input", placeholder: "Or type any emoji", "aria-label": "Type an emoji", style: "max-width:180px",
-      oninput: (e) => { const g = firstGrapheme(e.target.value); if (g) { saveCat(c, { emoji: g }); emojiFor = null; e.target.blur(); render(true); } },
-    });
     return h("div", {}, row,
-      h("div", { class: "emoji-grid" },
-        EMOJI_CHOICES.map((em) => h("button", { class: em === c.emoji ? "on" : "", onclick: () => { saveCat(c, { emoji: em }); emojiFor = null; render(true); } }, em))),
-      custom);
+      h("div", { class: "ev-swatches", style: "margin:10px 0 4px" },
+        EVENT_COLORS.map((x) => h("button", { class: "ev-sw" + (col.id === x.id ? " on" : ""), style: `background:${x.bg};--dot:${x.fg}`, "aria-label": `Colour ${x.id}`,
+          onclick: () => { saveCat(c, { color: x.id }); emojiFor = null; render(true); } }, h("i")))));
   });
 
   const addInput = h("input", { class: "text-input", placeholder: "New category, e.g. Book club", maxlength: "24", "aria-label": "New category name",
@@ -1312,7 +1307,7 @@ function viewCategories() {
     if (!v) return addInput.focus();
     const maxOrder = Math.max(0, ...list.filter((c) => c.id !== "other").map((c) => c.order ?? 0));
     const id = store.newId();
-    store.putCategory({ id, label: v, emoji: "🏷️", order: maxOrder + 1 });
+    store.putCategory({ id, label: v, color: EVENT_COLORS[list.length % 5].id, order: maxOrder + 1 });
     emojiFor = id;
     addInput.value = "";
     render(true);
@@ -1321,7 +1316,7 @@ function viewCategories() {
   return h("div", {},
     h("div", { class: "topbar" }, iconBtn("back", "Back", () => (history.length > 1 ? history.back() : go("settings"))), h("span", {}), h("span", { style: "width:44px" })),
     h("h1", {}, "Categories"),
-    h("p", { class: "muted", style: "margin-top:-4px" }, "Tap an emoji to change it, tap a name to rename it. Changes apply to everyone you've already saved."),
+    h("p", { class: "muted", style: "margin-top:-4px" }, "Tap a colour to change it, tap a name to rename it. New events take their category's colour."),
     h("div", { class: "section stack" }, rows),
     h("div", { class: "section stack" },
       h("div", { class: "lbl" }, "Add a category"),

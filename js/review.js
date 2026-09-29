@@ -21,14 +21,15 @@ export function answer(review, knewIt, now = Date.now()) {
   const r = review || newReview(now);
   if (knewIt) {
     const box = Math.min((r.box || 0) + 1, INTERVAL_DAYS.length - 1);
-    return { box, due: now + INTERVAL_DAYS[box] * DAY, known: box >= INTERVAL_DAYS.length - 1 };
+    return { box, due: now + INTERVAL_DAYS[box] * DAY, known: box >= INTERVAL_DAYS.length - 1, last: now };
   }
-  return { box: 0, due: now + DAY, known: false };
+  return { box: 0, due: now + DAY, known: false, last: now };
 }
 
+// Needs review: never practised yet (any time), or a spaced repeat that has come due.
 export function isDue(person, now = Date.now()) {
   const r = person.review;
-  if (!r) return true;
+  if (!r || !r.last) return true;
   return !r.known && r.due <= now;
 }
 
