@@ -11,7 +11,15 @@
 //   appId: "1:123456789:web:abc123",
 // };
 
-export const firebaseConfig = null;
+export const firebaseConfig = {
+  apiKey: "AIzaSyC45OhNmAFqPoWrgZSsr1f-SIUNO6eK34U",
+  authDomain: "nameapp-d7703.firebaseapp.com",
+  projectId: "nameapp-d7703",
+  storageBucket: "nameapp-d7703.firebasestorage.app",
+  messagingSenderId: "790783713144",
+  appId: "1:790783713144:web:3e66accbe36493e2dd328d",
+  measurementId: "G-21VDMZNQW8",
+};
 
 // Firebase JS SDK version loaded from the gstatic CDN.
 export const FIREBASE_VERSION = "12.12.0";
