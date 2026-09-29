@@ -1,0 +1,20 @@
+{
+  "name": "NameApp",
+  "short_name": "NameApp",
+  "description": "Save a name in seconds after you meet someone — and actually remember it.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fbf7f2",
+  "theme_color": "#ec5a2e",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Met someone", "short_name": "Add", "url": "./#/capture", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Review names", "short_name": "Review", "url": "./#/review", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
