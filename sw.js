@@ -1,6 +1,6 @@
 // Service worker: makes NameApp open instantly and work offline.
 // Bump VERSION whenever app files change so users get the update.
-const VERSION = "nameapp-v6";
+const VERSION = "nameapp-v7";
 const SHELL = [
   "./",
   "index.html",

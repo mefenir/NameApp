@@ -8,7 +8,7 @@ import * as rv from "./review.js";
    ============================================================ */
 
 const APP_NAME = "NameApp"; // working title — change here
-const APP_VERSION = "6";
+const APP_VERSION = "7";
 const EVENT_WINDOW_MS = 4 * 60 * 60 * 1000; // captures within 4h join the current event
 
 // Default categories. Users can rename them, change the emoji and add their own (stored in "categories").
@@ -56,16 +56,11 @@ const colorOf = (id) => COLORS.find((c) => c.id === id)?.v;
 
 // Every event gets its own colour; all its people cards use it. Text colour is picked for contrast (all ≥ 4.5:1).
 const EVENT_COLORS = [
-  { id: "orange", bg: "#ea4426", fg: "#141210" },
-  { id: "sky", bg: "#6fa8dc", fg: "#141210" },
-  { id: "sun", bg: "#f2b53a", fg: "#141210" },
-  { id: "moss", bg: "#2f6b45", fg: "#ffffff" },
-  { id: "ember", bg: "#a52b18", fg: "#ffffff" },
-  { id: "rose", bg: "#e98a9b", fg: "#141210" },
-  { id: "teal", bg: "#1f6f78", fg: "#ffffff" },
-  { id: "sand", bg: "#c9a77c", fg: "#141210" },
-  { id: "plum", bg: "#6b3a6e", fg: "#ffffff" },
-  { id: "ink", bg: "#2a2622", fg: "#ffffff" },
+  { id: "orange", bg: "#ec682c", fg: "#651d28" },
+  { id: "pink", bg: "#e7a3f9", fg: "#651e28" },
+  { id: "yellow", bg: "#f7ce46", fg: "#3e310a" },
+  { id: "green", bg: "#8eae40", fg: "#2a360d" },
+  { id: "wine", bg: "#651d28", fg: "#ec682c" },
 ];
 function hashIndex(str, n) {
   let x = 0;
@@ -73,7 +68,7 @@ function hashIndex(str, n) {
   return x % n;
 }
 function eventColor(ev) {
-  if (!ev) return EVENT_COLORS[EVENT_COLORS.length - 1];
+  if (!ev) return EVENT_COLORS[0];
   return EVENT_COLORS.find((c) => c.id === ev.color) || EVENT_COLORS[hashIndex(ev.id, EVENT_COLORS.length)];
 }
 function personColor(p) {
@@ -81,7 +76,7 @@ function personColor(p) {
 }
 function nextEventColor() {
   // Pick a colour different from the most recent events.
-  const recent = [...state.events].sort((a, b) => b.startedAt - a.startedAt).slice(0, 3).map((e) => eventColor(e).id);
+  const recent = [...state.events].sort((a, b) => b.startedAt - a.startedAt).slice(0, 2).map((e) => eventColor(e).id);
   const idx = state.events.length % EVENT_COLORS.length;
   for (let k = 0; k < EVENT_COLORS.length; k++) {
     const c = EVENT_COLORS[(idx + k) % EVENT_COLORS.length];
@@ -113,6 +108,7 @@ function h(tag, props, ...kids) {
 }
 
 const ICON = {
+  filter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M7 12h10M10 17h4"/></svg>',
   gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
@@ -224,6 +220,7 @@ function peopleIn(eventId) {
 
 const view = document.getElementById("view");
 let currentKey = null;
+let lastRouteName = null;
 
 function parseRoute() {
   const [name, arg] = location.hash.replace(/^#\/?/, "").split("/");
@@ -243,6 +240,8 @@ function navigate() {
   currentKey = key;
   if (r.name === "capture") capture = freshCapture();
   if (r.name === "review") session = null;
+  if (r.name === "calendar" && lastRouteName !== "calendar") { calMonth = null; calLastSel = null; }
+  lastRouteName = r.name;
   render(true);
   window.scrollTo(0, 0);
 }
@@ -329,7 +328,6 @@ function fitDonut(wrap) {
 function viewHome() {
   const ev = activeEvent();
   const due = rv.dueQueue(state.people).length;
-  const today = state.people.filter((p) => dayKey(p.createdAt) === dayKey(Date.now())).length;
 
   return h("div", { class: "home" },
     h("div", { class: "topbar" },
@@ -351,9 +349,8 @@ function viewHome() {
         h("span", { class: "donut-plus" }, "+")))),
 
     h("div", { class: "stats" },
-      h("button", { class: "stat", onclick: () => go("calendar") }, h("span", { class: "k" }, "Today"), h("span", { class: "v" }, today)),
       h("button", { class: "stat", onclick: () => go("people") }, h("span", { class: "k" }, "Met"), h("span", { class: "v" }, state.people.length)),
-      h("button", { class: "stat big", onclick: () => go("review") }, h("span", { class: "k" }, "To review"), h("span", { class: "v" }, due))),
+      h("button", { class: "stat review", onclick: () => go("review") }, h("span", { class: "k" }, "To review"), h("span", { class: "v" }, due))),
 
     installBanner(),
     state.mode === "local" && state.people.length === 0 &&
@@ -669,7 +666,7 @@ function viewPeople() {
   };
 
   const search = h("input", {
-    class: "text-input", type: "search", placeholder: "Search names, hooks, notes…", value: filter.q, "aria-label": "Search",
+    class: "text-input", type: "search", placeholder: "Search", value: filter.q, "aria-label": "Search",
     oninput: (e) => { filter.q = e.target.value; drawResults(); },
   });
 
@@ -677,24 +674,25 @@ function viewPeople() {
     [{ id: "all", label: "All" }, ...categories().map((r) => ({ id: r.id, label: `${r.emoji} ${r.label}` })), { id: "star", label: "⭐ See again" }]
       .map((o) => h("button", { class: "chip" + (filter.relation === o.id ? " on" : ""), onclick: () => { filter.relation = o.id; render(true); } }, o.label)));
 
-  const events = [...state.events].sort((a, b) => b.startedAt - a.startedAt);
-  if (!events.some((e) => e.id === filter.eventId)) filter.eventId = "all";
-  const evSelect = (events.length > 1 || filter.eventId !== "all") && h("select", {
-    class: "text-input", "aria-label": "Event",
-    onchange: (e) => { filter.eventId = e.target.value; drawResults(); },
-  }, h("option", { value: "all" }, "All events & places"),
-    events.map((ev) => h("option", { value: ev.id, selected: filter.eventId === ev.id }, `${ev.name} · ${fmtDate(ev.startedAt)}`)));
+  if (!state.events.some((e) => e.id === filter.eventId)) filter.eventId = "all";
+  const active = filter.relation !== "all" || filter.eventId !== "all";
+  const filterBtn = h("button", { class: "filter-btn" + (showFilters || active ? " on" : ""), "aria-expanded": String(showFilters), "aria-label": "Filter",
+    onclick: () => { showFilters = !showFilters; render(true); } }, icon("filter"), active ? h("i", { class: "fdot" }) : "");
 
   wrap.append(
-    h("div", { class: "topbar" }, h("h1", { style: "margin:0" }, "People"), h("span", { class: "muted" }, state.people.length ? `${state.people.length}` : "")),
+    h("div", { class: "topbar" }, h("h1", { style: "margin:0" }, "People"), h("span", { class: "count" }, state.people.length || "")),
     state.people.length > 0 ? h("div", { class: "filters" },
-      h("div", { class: "search" }, h("span", { class: "ico" }, icon("search")), search), relChips, evSelect) : "",
+      h("div", { class: "search-row" },
+        h("div", { class: "search" }, h("span", { class: "ico" }, icon("search")), search), filterBtn),
+      showFilters ? relChips : "",
+      filter.eventId !== "all" ? h("button", { class: "chip on", onclick: () => { filter.eventId = "all"; render(true); } }, store.getEvent(filter.eventId)?.name || "Event", h("span", { class: "x" }, "✕")) : "") : "",
     results);
   drawResults();
   return wrap;
 }
 
 let openCard = null; // id of the expanded person card
+let showFilters = false;
 let editingEvent = null; // id of the event whose edit row is open
 
 function collapsedEvents() { return new Set(prefs.get("collapsedEvents", [])); }
@@ -704,35 +702,75 @@ function setCollapsed(id, on) {
   prefs.set("collapsedEvents", [...set].slice(-200));
 }
 
-// One event block: coloured header that collapses, then its people cards.
+// One event: a colour square with a dot, then a label bar. Open = label takes the event colour.
 function eventGroup(eventId, ps, redraw, forceOpen) {
   const ev = store.getEvent(eventId);
   const col = eventColor(ev);
   const closed = !forceOpen && ev && collapsedEvents().has(ev.id);
   ps.sort((a, b) => b.createdAt - a.createdAt);
-  const toggle = () => { setCollapsed(ev.id, !closed); haptic(6); redraw(); };
+  const toggle = () => { if (!ev) return; setCollapsed(ev.id, !closed); haptic(6); redraw(); };
 
-  const head = h("div", { class: "group-head" },
-    h("button", { class: "gh-main", "aria-expanded": String(!closed), onclick: ev ? toggle : null },
-      h("span", { class: "gh-dot", style: `background:${col.bg}` }),
-      h("span", { class: "gh-text" },
-        h("span", { class: "t" }, ev ? `${rel(ev.relation).emoji} ${ev.name}` : "Other"),
-        h("span", { class: "m" }, [ev && fmtDate(ev.startedAt), ev && placeLine(ev.location), `${ps.length} ${ps.length === 1 ? "person" : "people"}`].filter(Boolean).join(" · "))),
-      ev && h("span", { class: "gh-chev" + (closed ? "" : " open") }, "›")),
-    ev && h("button", { class: "icon-btn", "aria-label": `Edit ${ev.name}`, onclick: () => { editingEvent = editingEvent === ev.id ? null : ev.id; redraw(); } }, "⋯"));
+  const head = h("div", { class: "ev-row" + (closed ? "" : " open"), style: colorStyle(col) },
+    h("button", { class: "ev-sq", "aria-label": ev ? `Edit ${ev.name}` : "Other", onclick: () => { if (!ev) return; editingEvent = editingEvent === ev.id ? null : ev.id; redraw(); } }, h("i")),
+    h("button", { class: "ev-label", "aria-expanded": String(!closed), onclick: toggle },
+      h("span", { class: "ev-name" }, ev ? ev.name : "Other"),
+      h("span", { class: "ev-meta" }, [ev && fmtDate(ev.startedAt), `${ps.length}`].filter(Boolean).join(" · "))));
 
-  const edit = ev && editingEvent === ev.id && h("div", { class: "gh-edit" },
+  const edit = ev && editingEvent === ev.id && h("div", { class: "ev-edit" },
     h("input", { class: "text-input", value: ev.name, "aria-label": "Event name", maxlength: "40",
       onchange: (e) => { const v = e.target.value.trim(); if (v && v !== ev.name) { store.putEvent({ ...ev, name: v, nameAuto: false }); toast("Renamed"); } },
       onkeydown: (e) => { if (e.key === "Enter") e.target.blur(); } }),
-    h("div", { class: "swatches" },
-      EVENT_COLORS.map((c) => h("button", { class: "swatch" + (col.id === c.id ? " on" : ""), style: `background:${c.bg}`, "aria-label": `Colour ${c.id}`,
-        onclick: () => { store.putEvent({ ...ev, color: c.id }); } }))),
+    h("div", { class: "ev-swatches" },
+      EVENT_COLORS.map((c) => h("button", { class: "ev-sw" + (col.id === c.id ? " on" : ""), style: `background:${c.bg};--dot:${c.fg}`, "aria-label": `Colour ${c.id}`,
+        onclick: () => { store.putEvent({ ...ev, color: c.id }); } }, h("i")))),
     h("button", { class: "link-btn", onclick: () => { editingEvent = null; redraw(); } }, "Done"));
 
   return h("section", { class: "group" + (closed ? " closed" : "") },
     head, edit,
     !closed && h("div", { class: "stack-cards" }, ps.map((p) => card(p, redraw))));
+}
+
+function deletePersonWithUndo(p) {
+  const copy = { ...p };
+  if (openCard === p.id) openCard = null;
+  store.deletePerson(p.id);
+  toast(`Deleted ${p.name}`, { label: "Undo", run: () => { store.putPerson(copy); toast("Restored"); } });
+}
+
+// Swipe a card left to reveal Delete; a long swipe deletes straight away.
+function swipeable(el, p) {
+  const front = el.querySelector(".pc-front");
+  let x0 = 0, y0 = 0, dx = 0, dragging = false, decided = false, horizontal = false;
+  const W = () => el.offsetWidth;
+  const set = (x, anim) => { front.style.transition = anim ? "transform 0.2s ease" : "none"; front.style.transform = `translateX(${x}px)`; };
+  el.addEventListener("pointerdown", (e) => {
+    if (el.classList.contains("open")) return;
+    x0 = e.clientX; y0 = e.clientY; dx = 0; dragging = true; decided = false; horizontal = false;
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const mx = e.clientX - x0, my = e.clientY - y0;
+    if (!decided && (Math.abs(mx) > 8 || Math.abs(my) > 8)) {
+      decided = true; horizontal = Math.abs(mx) > Math.abs(my);
+      if (horizontal) el.setPointerCapture?.(e.pointerId);
+    }
+    if (!horizontal) return;
+    dx = Math.min(0, mx + (el.dataset.revealed ? -96 : 0));
+    set(dx, false);
+  });
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    if (!horizontal) return;
+    el.dataset.swiped = "1"; // swallow the click that follows a drag
+    setTimeout(() => delete el.dataset.swiped, 50);
+    if (dx < -W() * 0.6) { set(-W(), true); haptic(20); setTimeout(() => deletePersonWithUndo(p), 180); }
+    else if (dx < -48) { set(-96, true); el.dataset.revealed = "1"; }
+    else { set(0, true); delete el.dataset.revealed; }
+  };
+  el.addEventListener("pointerup", end);
+  el.addEventListener("pointercancel", end);
+  return el;
 }
 
 function card(p, redraw) {
@@ -741,38 +779,45 @@ function card(p, redraw) {
   const col = personColor(p);
   const isOpen = openCard === p.id;
   const v = vibe(p.vibe);
-  const toggle = () => { openCard = isOpen ? null : p.id; haptic(6); redraw(); };
+  const toggle = (e) => {
+    const root = e.currentTarget.closest(".pcard");
+    if (root?.dataset.swiped) return;
+    if (root?.dataset.revealed) { delete root.dataset.revealed; root.querySelector(".pc-front").style.transform = ""; return; }
+    openCard = isOpen ? null : p.id; haptic(6); redraw();
+  };
 
   const head = h("button", { class: "pc-head", "aria-expanded": String(isOpen), onclick: toggle },
-    h("span", { class: "pc-text" },
-      h("span", { class: "pc-label" }, `${c.emoji} ${!ev ? c.label : ev.name.startsWith(c.label) ? ev.name : c.label + " · " + ev.name}`),
-      h("span", { class: "pc-name" }, p.name)),
-    (v || p.seeAgain) && h("span", { class: "pc-ico" }, p.seeAgain ? "⭐" : v.emoji),
-    h("span", { class: "pc-avatar" }, initials(p.name)));
+    h("span", { class: "pc-name" }, p.name),
+    h("span", { class: "pc-event" }, ev ? ev.name : c.label));
 
-  if (!isOpen) return h("div", { class: "pcard", style: colorStyle(col) }, head);
+  if (!isOpen) {
+    return swipeable(h("div", { class: "pcard", style: colorStyle(col) },
+      h("button", { class: "pc-delete", "aria-label": `Delete ${p.name}`, onclick: () => deletePersonWithUndo(p) }, "Delete"),
+      h("div", { class: "pc-front" }, head)), p);
+  }
 
   const loc = p.location?.lat != null ? p.location : null;
-  const where = placeLine(p.location) || ev?.name || "Somewhere";
-  const body = h("div", { class: "pc-body" },
-    h("div", { class: "pc-actions" },
-      h("div", { class: "pc-title" }, h("b", {}, `Met at ${where}`), h("span", { class: "muted" }, `${fmtDay(p.createdAt)} · ${fmtTime(p.createdAt)}`)),
-      h("button", { class: "ring-btn" + (p.seeAgain ? " on" : ""), "aria-label": p.seeAgain ? "Remove see again" : "Want to see again",
-        onclick: () => { store.putPerson({ ...p, seeAgain: !p.seeAgain }); } }, "⭐"),
-      h("button", { class: "ring-btn dark", "aria-label": `Open ${p.name}`, onclick: () => go("person/" + p.id) }, "✎")),
-    h("div", { class: "pc-tiles" + (loc ? "" : " no-map") },
-      loc && h("a", { class: "pc-tile map-tile", href: mapLink(loc), target: "_blank", rel: "noopener", "aria-label": "Open in Maps" },
-        h("iframe", { src: mapEmbedUrl(loc), title: "Where you met", loading: "lazy", tabindex: "-1" })),
-      h("div", { class: "pc-tile" }, h("span", { class: "big" }, v ? v.emoji : "–"), h("span", {}, v ? v.label : "No vibe")),
-      h("div", { class: "pc-tile" }, h("span", { class: "big" }, c.emoji), h("span", {}, c.label))),
-    h("div", { class: "pc-panel" },
-      h("div", { class: "row" }, h("span", {}, "What to remember"), h("button", { class: "small-link", onclick: () => go("person/" + p.id) }, "Edit")),
-      (p.hooks || []).length
-        ? h("div", { class: "pc-hooks" }, p.hooks.map((hk) => h("b", {}, hk)))
-        : h("p", { class: "muted", style: "margin:8px 0 0" }, "No hooks yet — tap Edit to add one."),
-      p.note && h("p", { class: "pc-note" }, p.note)));
+  const place = placeLine(p.location);
+  const row = (k, val) => val && h("div", { class: "pc-row" }, h("span", { class: "pc-k" }, k), h("span", { class: "pc-v" }, val));
 
-  return h("div", { class: "pcard open", style: colorStyle(col) }, head, body);
+  const body = h("div", { class: "pc-body" },
+    row("When", `${fmtDay(p.createdAt)}, ${fmtTime(p.createdAt)}`),
+    row("Where", place || (loc ? "Location saved" : "No location")),
+    row("How it was", v ? `${v.emoji} ${v.label}` : "—"),
+    row("Category", `${c.emoji} ${c.label}`),
+    h("div", { class: "pc-row stacked" },
+      h("span", { class: "pc-k" }, "Remember"),
+      (p.hooks || []).length
+        ? h("span", { class: "pc-v hooks" }, p.hooks.join(" · "))
+        : h("span", { class: "pc-v faint" }, "Nothing yet")),
+    p.note && h("div", { class: "pc-row stacked" }, h("span", { class: "pc-k" }, "Notes"), h("span", { class: "pc-v" }, p.note)),
+    loc && h("a", { class: "pc-map", href: mapLink(loc), target: "_blank", rel: "noopener", "aria-label": "Open in Maps" },
+      h("iframe", { src: mapEmbedUrl(loc), title: "Where you met", loading: "lazy", tabindex: "-1" })),
+    h("div", { class: "pc-btns" },
+      h("button", { class: "pc-btn" + (p.seeAgain ? " on" : ""), onclick: () => store.putPerson({ ...p, seeAgain: !p.seeAgain }) }, p.seeAgain ? "★ See again" : "☆ See again"),
+      h("button", { class: "pc-btn solid", onclick: () => go("person/" + p.id) }, "Edit")));
+
+  return h("div", { class: "pcard open", style: colorStyle(col) }, h("div", { class: "pc-front" }, head, body));
 }
 
 function renameEvent(ev) {
@@ -1174,15 +1219,14 @@ function viewCalendar(arg) {
   for (let d = 1; d <= days; d++) {
     const k = dayKey(new Date(y, m, d).getTime());
     const ps = byDay.get(k) || [];
-    const cols = [...new Set(ps.map((p) => personColor(p).bg))].slice(0, 3);
     cells.push(h("button", {
       class: "cal-cell" + (ps.length ? " has" : "") + (k === selected ? " sel" : "") + (k === todayKey ? " today" : ""),
       "aria-label": `${d} ${first.toLocaleDateString("en-GB", { month: "long" })}${ps.length ? `, ${ps.length} met` : ""}`,
+      "aria-pressed": String(k === selected),
       onclick: () => go("calendar/" + k),
     },
       h("span", { class: "n" }, d),
-      ps.length > 0 && h("span", { class: "cal-dots" }, cols.map((c) => h("i", { style: `background:${c}` }))),
-      ps.length > 1 && h("span", { class: "cal-count" }, ps.length)));
+      ps.length > 0 && h("i", { class: "cal-dot" })));
   }
 
   const dayPeople = byDay.get(selected) || [];
@@ -1193,16 +1237,13 @@ function viewCalendar(arg) {
     groups.get(k).push(p);
   }
   const redraw = () => render(true);
-  const monthCount = [...byDay.entries()].filter(([k]) => k.startsWith(`${y}-${String(m + 1).padStart(2, "0")}`)).reduce((n, [, ps]) => n + ps.length, 0);
 
   return h("div", {},
-    h("div", { class: "topbar" },
-      h("h1", { style: "margin:0" }, "Calendar"),
-      h("button", { class: "link-btn", onclick: () => { calMonth = null; go("calendar/" + todayKey); } }, "Today")),
+    h("div", { class: "topbar" }, h("h1", { style: "margin:0" }, "Calendar")),
     h("div", { class: "cal" },
       h("div", { class: "cal-head" },
         iconBtn("back", "Previous month", () => shift(-1)),
-        h("div", { class: "cal-title" }, h("b", {}, first.toLocaleDateString("en-GB", { month: "long", year: "numeric" })), h("span", { class: "muted" }, `${monthCount} met`)),
+        h("div", { class: "cal-title" }, h("b", {}, first.toLocaleDateString("en-GB", { month: "long", year: "numeric" }))),
         h("button", { class: "icon-btn flip", "aria-label": "Next month", onclick: () => shift(1) }, icon("back"))),
       h("div", { class: "cal-grid cal-wd" }, ["M", "T", "W", "T", "F", "S", "S"].map((d) => h("span", {}, d))),
       h("div", { class: "cal-grid" }, cells)),
