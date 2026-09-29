@@ -1,6 +1,6 @@
 // Service worker: makes NameApp open instantly and work offline.
 // Bump VERSION whenever app files change so users get the update.
-const VERSION = "nameapp-v7";
+const VERSION = "nameapp-v8";
 const SHELL = [
   "./",
   "index.html",
@@ -9,6 +9,7 @@ const SHELL = [
   "js/store.js",
   "js/geo.js",
   "js/review.js",
+  "js/lava.js",
   "js/firebase-config.js",
   "manifest.webmanifest",
   "icons/icon.svg",

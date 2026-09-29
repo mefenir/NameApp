@@ -2,13 +2,14 @@ import * as store from "./store.js";
 import { state } from "./store.js";
 import { getPosition, reverseGeocode, mapLink, mapEmbedUrl, permissionState, geoDebug } from "./geo.js";
 import * as rv from "./review.js";
+import { mountLava } from "./lava.js";
 
 /* ============================================================
    Constants
    ============================================================ */
 
 const APP_NAME = "NameApp"; // working title — change here
-const APP_VERSION = "7";
+const APP_VERSION = "8";
 const EVENT_WINDOW_MS = 4 * 60 * 60 * 1000; // captures within 4h join the current event
 
 // Default categories. Users can rename them, change the emoji and add their own (stored in "categories").
@@ -221,6 +222,7 @@ function peopleIn(eventId) {
 const view = document.getElementById("view");
 let currentKey = null;
 let lastRouteName = null;
+let stopLava = null;
 
 function parseRoute() {
   const [name, arg] = location.hash.replace(/^#\/?/, "").split("/");
@@ -260,7 +262,14 @@ function render(force) {
   if (!state.ready && r.name !== "settings") {
     view.replaceChildren(h("div", { class: "empty" }, h("span", { class: "emoji" }, "⏳"), "Loading…"));
   } else {
+    stopLava?.();
+    stopLava = null;
     view.replaceChildren(fn(r.arg));
+    const canvas = view.querySelector("canvas.lava");
+    if (canvas) requestAnimationFrame(() => {
+      stopLava = mountLava(canvas);
+      if (!stopLava) canvas.closest(".donut")?.classList.add("no-webgl");
+    });
   }
   view.dataset.ready = state.ready ? "1" : "0";
   updateTabs(r);
@@ -340,13 +349,13 @@ function viewHome() {
 
     ev && h("div", { class: "event-pill", style: colorStyle(eventColor(ev)) },
       h("span", { class: "dot" }),
-      h("span", { class: "grow" }, `${rel(ev.relation).emoji} ${ev.name}`, h("span", { class: "muted" }, ` · ${peopleIn(ev.id).length} met`)),
+      h("span", { class: "grow" }, ev.name, h("span", { class: "sub" }, ` · ${peopleIn(ev.id).length} met`)),
       h("button", { class: "mini-btn", onclick: () => { store.putEvent({ ...ev, endedAt: Date.now() }); toast("Event ended"); } }, "End")),
 
     fitDonut(h("div", { class: "donut-wrap" },
       h("button", { class: "donut", id: "big-btn", "aria-label": "Met someone — add a name", onclick: () => { haptic(); go("capture"); } },
-        h("span", { class: "donut-ring" }),
-        h("span", { class: "donut-plus" }, "+")))),
+        h("canvas", { class: "lava", "aria-hidden": "true" }),
+        h("span", { class: "donut-plus", "aria-hidden": "true" }, "+")))),
 
     h("div", { class: "stats" },
       h("button", { class: "stat", onclick: () => go("people") }, h("span", { class: "k" }, "Met"), h("span", { class: "v" }, state.people.length)),
@@ -991,7 +1000,6 @@ function viewReview() {
   const p = store.getPerson(ids[s.i]);
   const ev = store.getEvent(p.eventId);
   const v = vibe(p.vibe);
-  const tint = personColor(p).bg;
   const answer = (knew) => {
     haptic(knew ? 15 : 30);
     if (knew) s.knew++;
@@ -1006,7 +1014,7 @@ function viewReview() {
       h("span", { class: "progress muted" }, `${s.i + 1} / ${ids.length}${s.practice ? " · practice" : ""}`),
       h("span", { style: "width:44px" })),
     h("div", { class: "rv-progress" }, h("i", { style: `width:${(s.i / ids.length) * 100}%` })),
-    h("div", { class: "flash", style: tint ? `--card-tint:${tint}` : "" },
+    h("div", { class: "flash", style: colorStyle(personColor(p)) },
       h("div", { class: "ctx" },
         h("b", {}, ev ? `${rel(ev.relation).emoji} ${ev.name}` : rel(p.relation).label), h("br"),
         [fmtDay(p.createdAt), placeLine(p.location)].filter(Boolean).join(" · ")),

@@ -49,6 +49,7 @@ js/app.js              screens: home, capture, people, person, review, settings
 js/store.js            data layer (local mode or Firebase)
 js/review.js           spaced-repetition logic
 js/geo.js              GPS + OpenStreetMap place names
+js/lava.js             animated Lava gradient for the main button (WebGL)
 js/firebase-config.js  your Firebase config (null = local mode)
 sw.js                  offline cache — bump VERSION when you change files
 manifest.webmanifest   install info, icons, shortcuts
@@ -64,3 +65,7 @@ users/{uid}/people/{id}  name, eventId, relation, vibe, seeAgain, hooks[], note,
 ```
 
 Place names © OpenStreetMap contributors (Nominatim).
+
+## Credits
+
+The animated "Lava" gradient on the main button is ported from [Spell UI](https://github.com/xxtomm/spell-ui) (MIT License).
