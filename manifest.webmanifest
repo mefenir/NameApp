@@ -15,6 +15,7 @@
   ],
   "shortcuts": [
     { "name": "Met someone", "short_name": "Add", "url": "./#/capture", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Calendar", "short_name": "Calendar", "url": "./#/calendar", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
     { "name": "Review names", "short_name": "Review", "url": "./#/review", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }

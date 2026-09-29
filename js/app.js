@@ -8,7 +8,7 @@ import * as rv from "./review.js";
    ============================================================ */
 
 const APP_NAME = "NameApp"; // working title — change here
-const APP_VERSION = "5";
+const APP_VERSION = "6";
 const EVENT_WINDOW_MS = 4 * 60 * 60 * 1000; // captures within 4h join the current event
 
 // Default categories. Users can rename them, change the emoji and add their own (stored in "categories").
@@ -53,6 +53,43 @@ function rel(id) {
 const catIndex = (id) => Math.max(0, categories().findIndex((c) => c.id === rel(id).id));
 const vibe = (id) => VIBES.find((v) => v.id === id);
 const colorOf = (id) => COLORS.find((c) => c.id === id)?.v;
+
+// Every event gets its own colour; all its people cards use it. Text colour is picked for contrast (all ≥ 4.5:1).
+const EVENT_COLORS = [
+  { id: "orange", bg: "#ea4426", fg: "#141210" },
+  { id: "sky", bg: "#6fa8dc", fg: "#141210" },
+  { id: "sun", bg: "#f2b53a", fg: "#141210" },
+  { id: "moss", bg: "#2f6b45", fg: "#ffffff" },
+  { id: "ember", bg: "#a52b18", fg: "#ffffff" },
+  { id: "rose", bg: "#e98a9b", fg: "#141210" },
+  { id: "teal", bg: "#1f6f78", fg: "#ffffff" },
+  { id: "sand", bg: "#c9a77c", fg: "#141210" },
+  { id: "plum", bg: "#6b3a6e", fg: "#ffffff" },
+  { id: "ink", bg: "#2a2622", fg: "#ffffff" },
+];
+function hashIndex(str, n) {
+  let x = 0;
+  for (const ch of String(str)) x = (x * 31 + ch.charCodeAt(0)) >>> 0;
+  return x % n;
+}
+function eventColor(ev) {
+  if (!ev) return EVENT_COLORS[EVENT_COLORS.length - 1];
+  return EVENT_COLORS.find((c) => c.id === ev.color) || EVENT_COLORS[hashIndex(ev.id, EVENT_COLORS.length)];
+}
+function personColor(p) {
+  return eventColor(store.getEvent(p.eventId));
+}
+function nextEventColor() {
+  // Pick a colour different from the most recent events.
+  const recent = [...state.events].sort((a, b) => b.startedAt - a.startedAt).slice(0, 3).map((e) => eventColor(e).id);
+  const idx = state.events.length % EVENT_COLORS.length;
+  for (let k = 0; k < EVENT_COLORS.length; k++) {
+    const c = EVENT_COLORS[(idx + k) % EVENT_COLORS.length];
+    if (!recent.includes(c.id)) return c.id;
+  }
+  return EVENT_COLORS[idx].id;
+}
+const colorStyle = (c) => `--ev-bg:${c.bg};--ev-fg:${c.fg}`;
 
 /* ============================================================
    Tiny DOM helper
@@ -120,9 +157,8 @@ function placeLine(loc) {
   return [loc.place, loc.city].filter((x, i, a) => x && a.indexOf(x) === i).join(", ");
 }
 function avatar(p, lg) {
-  const tint = colorOf(p.color);
-  const bg = tint ? `color-mix(in srgb, ${tint} 30%, var(--surface))` : `var(--cat-${catIndex(p.relation) % 6})`;
-  return h("div", { class: "avatar" + (lg ? " lg" : ""), style: `--av:${bg}` }, initials(p.name));
+  const c = personColor(p);
+  return h("div", { class: "avatar" + (lg ? " lg" : ""), style: `--av:${c.bg};color:${c.fg}` }, initials(p.name));
 }
 const haptic = (ms = 12) => navigator.vibrate?.(ms);
 
@@ -220,7 +256,8 @@ function render(force) {
     if (a && view.contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return updateTabs(r);
   }
   document.body.classList.toggle("fullscreen", r.name === "capture");
-  const fn = { home: viewHome, capture: viewCapture, people: viewPeople, person: viewPerson, review: viewReview, settings: viewSettings, categories: viewCategories }[r.name] || viewHome;
+  document.body.classList.toggle("on-home", r.name === "home" || !r.name);
+  const fn = { home: viewHome, capture: viewCapture, people: viewPeople, person: viewPerson, review: viewReview, settings: viewSettings, categories: viewCategories, calendar: viewCalendar }[r.name] || viewHome;
   if (!state.ready && r.name !== "settings") {
     view.replaceChildren(h("div", { class: "empty" }, h("span", { class: "emoji" }, "⏳"), "Loading…"));
   } else {
@@ -272,22 +309,27 @@ function installBanner() {
   return null;
 }
 
-function donut() {
-  // Big ring button: deep-orange base with a bright-orange arc whose rounded ends overlap it.
-  const r = 70, C = 2 * Math.PI * r, bright = C * (225 / 360);
-  const svg = `<svg viewBox="0 0 200 200" aria-hidden="true">
-    <circle cx="100" cy="100" r="${r}" fill="none" stroke="var(--accent-2)" stroke-width="60"/>
-    <circle cx="100" cy="100" r="${r}" fill="none" stroke="var(--accent)" stroke-width="60" stroke-linecap="round"
-      stroke-dasharray="${bright} ${C}" transform="rotate(115 100 100)"/>
-  </svg>`;
-  const s = h("span", { class: "donut-svg" });
-  s.innerHTML = svg;
-  return s;
+// Size the ring to the space left on screen, so the home page never scrolls.
+let donutObserver = null;
+function fitDonut(wrap) {
+  donutObserver?.disconnect();
+  const apply = () => {
+    const r = wrap.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    wrap.style.setProperty("--donut", `${Math.floor(Math.min(r.width, r.height - 16, 380))}px`);
+  };
+  if ("ResizeObserver" in window) {
+    donutObserver = new ResizeObserver(apply);
+    donutObserver.observe(wrap);
+  }
+  requestAnimationFrame(apply);
+  return wrap;
 }
 
 function viewHome() {
   const ev = activeEvent();
   const due = rv.dueQueue(state.people).length;
+  const today = state.people.filter((p) => dayKey(p.createdAt) === dayKey(Date.now())).length;
 
   return h("div", { class: "home" },
     h("div", { class: "topbar" },
@@ -298,26 +340,24 @@ function viewHome() {
 
     h("h1", { class: "hero" }, ev ? ["Met someone", h("br"), "else?"] : ["Met", h("br"), "someone?"]),
 
-    ev && h("div", { class: "event-pill" },
+    ev && h("div", { class: "event-pill", style: colorStyle(eventColor(ev)) },
+      h("span", { class: "dot" }),
       h("span", { class: "grow" }, `${rel(ev.relation).emoji} ${ev.name}`, h("span", { class: "muted" }, ` · ${peopleIn(ev.id).length} met`)),
       h("button", { class: "mini-btn", onclick: () => { store.putEvent({ ...ev, endedAt: Date.now() }); toast("Event ended"); } }, "End")),
 
-    h("button", { class: "donut", id: "big-btn", "aria-label": "Met someone — add a name", onclick: () => { haptic(); go("capture"); } },
-      donut(), h("span", { class: "donut-plus" }, "+")),
+    fitDonut(h("div", { class: "donut-wrap" },
+      h("button", { class: "donut", id: "big-btn", "aria-label": "Met someone — add a name", onclick: () => { haptic(); go("capture"); } },
+        h("span", { class: "donut-ring" }),
+        h("span", { class: "donut-plus" }, "+")))),
 
     h("div", { class: "stats" },
+      h("button", { class: "stat", onclick: () => go("calendar") }, h("span", { class: "k" }, "Today"), h("span", { class: "v" }, today)),
       h("button", { class: "stat", onclick: () => go("people") }, h("span", { class: "k" }, "Met"), h("span", { class: "v" }, state.people.length)),
       h("button", { class: "stat big", onclick: () => go("review") }, h("span", { class: "k" }, "To review"), h("span", { class: "v" }, due))),
 
-    h("div", { class: "split" },
-      h("div", { class: "cell" },
-        h("button", { class: "circle-btn", onclick: () => go("review") }, due ? "Review" : "Practise")),
-      h("div", { class: "cell" },
-        h("button", { class: "dots", "aria-label": "See everyone", onclick: () => go("people") }, "• • •"))),
-
     installBanner(),
     state.mode === "local" && state.people.length === 0 &&
-      h("p", { class: "small-print", style: "text-align:center" }, "Local mode: names are saved on this device only."));
+      h("p", { class: "small-print", style: "text-align:center;margin:8px 0 0" }, "Local mode: names are saved on this device only."));
 }
 
 /* ============================================================
@@ -530,6 +570,7 @@ function saveCapture() {
       startedAt: now,
       lastAt: now,
       location: null,
+      color: nextEventColor(),
     };
     createdEvent = true;
   } else {
@@ -624,17 +665,7 @@ function viewPeople() {
       const ea = store.getEvent(a[0]); const eb = store.getEvent(b[0]);
       return (eb?.startedAt || 0) - (ea?.startedAt || 0);
     });
-    results.replaceChildren(...ordered.map(([k, ps]) => {
-      const ev = store.getEvent(k);
-      ps.sort((a, b) => b.createdAt - a.createdAt);
-      return h("section", {},
-        h("div", { class: "group-head" },
-          h("div", { style: "min-width:0" },
-            h("div", { class: "t" }, ev ? `${rel(ev.relation).emoji} ${ev.name}` : "Other"),
-            ev && h("div", { class: "m" }, [fmtDate(ev.startedAt), placeLine(ev.location)].filter(Boolean).join(" · "))),
-          ev && h("button", { class: "rename", onclick: () => renameEvent(ev) }, "Rename")),
-        h("div", { class: "stack-cards" }, ps.map((p) => card(p, drawResults))));
-    }));
+    results.replaceChildren(...ordered.map(([k, ps]) => eventGroup(k, ps, drawResults, filter.q.trim() !== "")));
   };
 
   const search = h("input", {
@@ -656,62 +687,92 @@ function viewPeople() {
 
   wrap.append(
     h("div", { class: "topbar" }, h("h1", { style: "margin:0" }, "People"), h("span", { class: "muted" }, state.people.length ? `${state.people.length}` : "")),
-    state.people.length > 0 && h("div", { class: "filters" },
-      h("div", { class: "search" }, h("span", { class: "ico" }, icon("search")), search), relChips, evSelect),
+    state.people.length > 0 ? h("div", { class: "filters" },
+      h("div", { class: "search" }, h("span", { class: "ico" }, icon("search")), search), relChips, evSelect) : "",
     results);
   drawResults();
   return wrap;
 }
 
 let openCard = null; // id of the expanded person card
+let editingEvent = null; // id of the event whose edit row is open
 
-const TEXT_ON = { yellow: "var(--ink)" };
+function collapsedEvents() { return new Set(prefs.get("collapsedEvents", [])); }
+function setCollapsed(id, on) {
+  const set = collapsedEvents();
+  on ? set.add(id) : set.delete(id);
+  prefs.set("collapsedEvents", [...set].slice(-200));
+}
+
+// One event block: coloured header that collapses, then its people cards.
+function eventGroup(eventId, ps, redraw, forceOpen) {
+  const ev = store.getEvent(eventId);
+  const col = eventColor(ev);
+  const closed = !forceOpen && ev && collapsedEvents().has(ev.id);
+  ps.sort((a, b) => b.createdAt - a.createdAt);
+  const toggle = () => { setCollapsed(ev.id, !closed); haptic(6); redraw(); };
+
+  const head = h("div", { class: "group-head" },
+    h("button", { class: "gh-main", "aria-expanded": String(!closed), onclick: ev ? toggle : null },
+      h("span", { class: "gh-dot", style: `background:${col.bg}` }),
+      h("span", { class: "gh-text" },
+        h("span", { class: "t" }, ev ? `${rel(ev.relation).emoji} ${ev.name}` : "Other"),
+        h("span", { class: "m" }, [ev && fmtDate(ev.startedAt), ev && placeLine(ev.location), `${ps.length} ${ps.length === 1 ? "person" : "people"}`].filter(Boolean).join(" · "))),
+      ev && h("span", { class: "gh-chev" + (closed ? "" : " open") }, "›")),
+    ev && h("button", { class: "icon-btn", "aria-label": `Edit ${ev.name}`, onclick: () => { editingEvent = editingEvent === ev.id ? null : ev.id; redraw(); } }, "⋯"));
+
+  const edit = ev && editingEvent === ev.id && h("div", { class: "gh-edit" },
+    h("input", { class: "text-input", value: ev.name, "aria-label": "Event name", maxlength: "40",
+      onchange: (e) => { const v = e.target.value.trim(); if (v && v !== ev.name) { store.putEvent({ ...ev, name: v, nameAuto: false }); toast("Renamed"); } },
+      onkeydown: (e) => { if (e.key === "Enter") e.target.blur(); } }),
+    h("div", { class: "swatches" },
+      EVENT_COLORS.map((c) => h("button", { class: "swatch" + (col.id === c.id ? " on" : ""), style: `background:${c.bg}`, "aria-label": `Colour ${c.id}`,
+        onclick: () => { store.putEvent({ ...ev, color: c.id }); } }))),
+    h("button", { class: "link-btn", onclick: () => { editingEvent = null; redraw(); } }, "Done"));
+
+  return h("section", { class: "group" + (closed ? " closed" : "") },
+    head, edit,
+    !closed && h("div", { class: "stack-cards" }, ps.map((p) => card(p, redraw))));
+}
+
 function card(p, redraw) {
   const ev = store.getEvent(p.eventId);
   const c = rel(p.relation);
-  const tint = colorOf(p.color);
+  const col = personColor(p);
   const isOpen = openCard === p.id;
   const v = vibe(p.vibe);
   const toggle = () => { openCard = isOpen ? null : p.id; haptic(6); redraw(); };
 
-  const head = h("button", {
-    class: "pc-head", "aria-expanded": String(isOpen), onclick: toggle,
-    style: tint ? `--pc-bg:${tint};--pc-ink:${TEXT_ON[p.color] || "#fff"}` : "",
-  },
-    h("div", { class: "pc-text" },
-      h("div", { class: "pc-label" }, `+ ${c.emoji} ${!ev ? c.label : ev.name.startsWith(c.label) ? ev.name : c.label + " · " + ev.name}`),
-      h("div", { class: "pc-name" }, p.name)),
+  const head = h("button", { class: "pc-head", "aria-expanded": String(isOpen), onclick: toggle },
+    h("span", { class: "pc-text" },
+      h("span", { class: "pc-label" }, `${c.emoji} ${!ev ? c.label : ev.name.startsWith(c.label) ? ev.name : c.label + " · " + ev.name}`),
+      h("span", { class: "pc-name" }, p.name)),
     (v || p.seeAgain) && h("span", { class: "pc-ico" }, p.seeAgain ? "⭐" : v.emoji),
     h("span", { class: "pc-avatar" }, initials(p.name)));
 
-  if (!isOpen) return h("div", { class: "pcard" }, head);
+  if (!isOpen) return h("div", { class: "pcard", style: colorStyle(col) }, head);
 
   const loc = p.location?.lat != null ? p.location : null;
   const where = placeLine(p.location) || ev?.name || "Somewhere";
-  const tiles = h("div", { class: "pc-tiles" },
-    loc && h("a", { class: "pc-tile map-tile", href: mapLink(loc), target: "_blank", rel: "noopener", "aria-label": "Open in Maps" },
-      h("iframe", { src: mapEmbedUrl(loc), title: "Where you met", loading: "lazy", tabindex: "-1" })),
-    h("div", { class: "pc-tile" }, h("span", { class: "big" }, v ? v.emoji : "–"), h("span", {}, v ? v.label : "No vibe")),
-    h("div", { class: "pc-tile" }, h("span", { class: "big num" }, fmtTime(p.createdAt)), h("span", {}, fmtDate(p.createdAt))));
-
   const body = h("div", { class: "pc-body" },
     h("div", { class: "pc-actions" },
-      h("span", { class: "pc-mark" }, c.emoji),
-      h("span", { class: "grow" }),
+      h("div", { class: "pc-title" }, h("b", {}, `Met at ${where}`), h("span", { class: "muted" }, `${fmtDay(p.createdAt)} · ${fmtTime(p.createdAt)}`)),
       h("button", { class: "ring-btn" + (p.seeAgain ? " on" : ""), "aria-label": p.seeAgain ? "Remove see again" : "Want to see again",
         onclick: () => { store.putPerson({ ...p, seeAgain: !p.seeAgain }); } }, "⭐"),
-      h("button", { class: "ring-btn", "aria-label": `Edit ${p.name}`, onclick: () => go("person/" + p.id) }, "✎"),
-      h("button", { class: "ring-btn dark", "aria-label": `Open ${p.name}`, onclick: () => go("person/" + p.id) }, "▶")),
-    h("div", { class: "pc-title" }, h("b", {}, `Met at ${where}`), h("span", { class: "muted" }, fmtDay(p.createdAt))),
-    tiles,
+      h("button", { class: "ring-btn dark", "aria-label": `Open ${p.name}`, onclick: () => go("person/" + p.id) }, "✎")),
+    h("div", { class: "pc-tiles" + (loc ? "" : " no-map") },
+      loc && h("a", { class: "pc-tile map-tile", href: mapLink(loc), target: "_blank", rel: "noopener", "aria-label": "Open in Maps" },
+        h("iframe", { src: mapEmbedUrl(loc), title: "Where you met", loading: "lazy", tabindex: "-1" })),
+      h("div", { class: "pc-tile" }, h("span", { class: "big" }, v ? v.emoji : "–"), h("span", {}, v ? v.label : "No vibe")),
+      h("div", { class: "pc-tile" }, h("span", { class: "big" }, c.emoji), h("span", {}, c.label))),
     h("div", { class: "pc-panel" },
-      h("div", { class: "row" }, h("span", {}, "What to remember"), h("button", { class: "muted small-link", onclick: () => go("person/" + p.id) }, "See all")),
+      h("div", { class: "row" }, h("span", {}, "What to remember"), h("button", { class: "small-link", onclick: () => go("person/" + p.id) }, "Edit")),
       (p.hooks || []).length
         ? h("div", { class: "pc-hooks" }, p.hooks.map((hk) => h("b", {}, hk)))
-        : h("p", { class: "muted", style: "margin:8px 0 0" }, "No hooks yet — tap ✎ to add one."),
+        : h("p", { class: "muted", style: "margin:8px 0 0" }, "No hooks yet — tap Edit to add one."),
       p.note && h("p", { class: "pc-note" }, p.note)));
 
-  return h("div", { class: "pcard open" }, head, body);
+  return h("div", { class: "pcard open", style: colorStyle(col) }, head, body);
 }
 
 function renameEvent(ev) {
@@ -821,12 +882,6 @@ function viewPerson(id) {
       h("div", { class: "chips" },
         categories().map((c) => h("button", { class: "chip" + (rel(p.relation).id === c.id ? " on" : ""), onclick: () => { save({ relation: c.id }); render(true); } }, `${c.emoji} ${c.label}`)))),
 
-    h("div", { class: "section" },
-      h("div", { class: "lbl" }, "Card colour"),
-      h("div", { class: "swatches" },
-        h("button", { class: "swatch none" + (!p.color ? " on" : ""), "aria-label": "No colour", onclick: () => { save({ color: null }); render(true); } }),
-        COLORS.map((c) => h("button", { class: "swatch" + (p.color === c.id ? " on" : ""), style: `background:${c.v}`, "aria-label": c.id, onclick: () => { save({ color: c.id }); render(true); } })))),
-
     h("div", { class: "section row" },
       h("div", {}, h("div", { class: "lbl", style: "margin-bottom:2px" }, "Memory"), h("span", { class: "muted" }, memoryLine)),
       h("button", { class: "link-btn", onclick: () => { save({ review: { box: 0, due: Date.now(), known: false } }); toast("Added to today's review"); render(true); } }, "Review today")),
@@ -891,7 +946,7 @@ function viewReview() {
   const p = store.getPerson(ids[s.i]);
   const ev = store.getEvent(p.eventId);
   const v = vibe(p.vibe);
-  const tint = colorOf(p.color);
+  const tint = personColor(p).bg;
   const answer = (knew) => {
     haptic(knew ? 15 : 30);
     if (knew) s.knew++;
@@ -1078,6 +1133,86 @@ function exportJson() {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/* ============================================================
+   Calendar
+   ============================================================ */
+
+function dayKey(ms) {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function parseDay(key) {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+let calMonth = null; // Date on the 1st of the shown month
+let calLastSel = null;
+
+function viewCalendar(arg) {
+  const selected = arg && /^\d{4}-\d{2}-\d{2}$/.test(arg) ? arg : dayKey(Date.now());
+  const selDate = parseDay(selected);
+  if (!calMonth || selected !== calLastSel) calMonth = new Date(selDate.getFullYear(), selDate.getMonth(), 1);
+  calLastSel = selected;
+  const byDay = new Map();
+  for (const p of state.people) {
+    const k = dayKey(p.createdAt);
+    if (!byDay.has(k)) byDay.set(k, []);
+    byDay.get(k).push(p);
+  }
+
+  const y = calMonth.getFullYear(), m = calMonth.getMonth();
+  const first = new Date(y, m, 1);
+  const lead = (first.getDay() + 6) % 7; // weeks start on Monday
+  const days = new Date(y, m + 1, 0).getDate();
+  const todayKey = dayKey(Date.now());
+  const shift = (n) => { calMonth = new Date(y, m + n, 1); render(true); };
+
+  const cells = [];
+  for (let i = 0; i < lead; i++) cells.push(h("span", { class: "cal-cell blank" }));
+  for (let d = 1; d <= days; d++) {
+    const k = dayKey(new Date(y, m, d).getTime());
+    const ps = byDay.get(k) || [];
+    const cols = [...new Set(ps.map((p) => personColor(p).bg))].slice(0, 3);
+    cells.push(h("button", {
+      class: "cal-cell" + (ps.length ? " has" : "") + (k === selected ? " sel" : "") + (k === todayKey ? " today" : ""),
+      "aria-label": `${d} ${first.toLocaleDateString("en-GB", { month: "long" })}${ps.length ? `, ${ps.length} met` : ""}`,
+      onclick: () => go("calendar/" + k),
+    },
+      h("span", { class: "n" }, d),
+      ps.length > 0 && h("span", { class: "cal-dots" }, cols.map((c) => h("i", { style: `background:${c}` }))),
+      ps.length > 1 && h("span", { class: "cal-count" }, ps.length)));
+  }
+
+  const dayPeople = byDay.get(selected) || [];
+  const groups = new Map();
+  for (const p of dayPeople) {
+    const k = p.eventId || "none";
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(p);
+  }
+  const redraw = () => render(true);
+  const monthCount = [...byDay.entries()].filter(([k]) => k.startsWith(`${y}-${String(m + 1).padStart(2, "0")}`)).reduce((n, [, ps]) => n + ps.length, 0);
+
+  return h("div", {},
+    h("div", { class: "topbar" },
+      h("h1", { style: "margin:0" }, "Calendar"),
+      h("button", { class: "link-btn", onclick: () => { calMonth = null; go("calendar/" + todayKey); } }, "Today")),
+    h("div", { class: "cal" },
+      h("div", { class: "cal-head" },
+        iconBtn("back", "Previous month", () => shift(-1)),
+        h("div", { class: "cal-title" }, h("b", {}, first.toLocaleDateString("en-GB", { month: "long", year: "numeric" })), h("span", { class: "muted" }, `${monthCount} met`)),
+        h("button", { class: "icon-btn flip", "aria-label": "Next month", onclick: () => shift(1) }, icon("back"))),
+      h("div", { class: "cal-grid cal-wd" }, ["M", "T", "W", "T", "F", "S", "S"].map((d) => h("span", {}, d))),
+      h("div", { class: "cal-grid" }, cells)),
+    h("div", { class: "day-head" },
+      h("h2", { class: "day-title" }, selDate.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })),
+      h("span", { class: "muted" }, dayPeople.length ? `${dayPeople.length} met` : "")),
+    dayPeople.length
+      ? [...groups.entries()].sort((a, b) => (store.getEvent(a[0])?.startedAt || 0) - (store.getEvent(b[0])?.startedAt || 0))
+          .map(([k, ps]) => eventGroup(k, ps, redraw, true))
+      : h("div", { class: "empty", style: "padding:24px 12px" }, "Nobody saved on this day."));
 }
 
 /* ============================================================
