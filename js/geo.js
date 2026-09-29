@@ -1,28 +1,30 @@
 // Location helpers: a quick GPS fix + reverse geocoding via OpenStreetMap Nominatim.
 // Location is always optional — if it's denied or slow, captures still save.
 
-export function getPosition({ timeout = 10000 } = {}) {
+// Resolves to { lat, lng, accuracy } or { error: "denied" | "unavailable" | "unsupported" }.
+// Tries a precise fix first; if that's slow (indoors), falls back to a quick approximate one.
+function once(opts) {
   return new Promise((resolve) => {
-    if (!("geolocation" in navigator)) return resolve(null);
     let done = false;
-    const finish = (v) => {
-      if (!done) {
-        done = true;
-        resolve(v);
-      }
-    };
-    setTimeout(() => finish(null), timeout + 500);
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    setTimeout(() => finish({ error: "unavailable" }), opts.timeout + 1000);
     navigator.geolocation.getCurrentPosition(
-      (pos) =>
-        finish({
-          lat: +pos.coords.latitude.toFixed(5),
-          lng: +pos.coords.longitude.toFixed(5),
-          accuracy: Math.round(pos.coords.accuracy),
-        }),
-      () => finish(null),
-      { enableHighAccuracy: true, timeout, maximumAge: 60000 }
+      (pos) => finish({
+        lat: +pos.coords.latitude.toFixed(5),
+        lng: +pos.coords.longitude.toFixed(5),
+        accuracy: Math.round(pos.coords.accuracy),
+      }),
+      (err) => finish({ error: err.code === 1 ? "denied" : "unavailable" }),
+      opts
     );
   });
+}
+
+export async function getPosition() {
+  if (!("geolocation" in navigator)) return { error: "unsupported" };
+  const precise = await once({ enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+  if (!precise.error || precise.error === "denied") return precise;
+  return once({ enableHighAccuracy: false, timeout: 15000, maximumAge: 10 * 60000 });
 }
 
 const cache = new Map();
@@ -64,6 +66,16 @@ export function distanceKm(a, b) {
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 
+// Opens the phone's own maps app where possible.
 export function mapLink(loc) {
-  return `https://www.openstreetmap.org/?mlat=${loc.lat}&mlon=${loc.lng}#map=17/${loc.lat}/${loc.lng}`;
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  if (ios) return `https://maps.apple.com/?ll=${loc.lat},${loc.lng}&q=${encodeURIComponent(loc.place || "Met here")}`;
+  return `https://www.google.com/maps/search/?api=1&query=${loc.lat},${loc.lng}`;
+}
+
+// Embeddable OpenStreetMap view (no API key needed) with a marker at the spot.
+export function mapEmbedUrl(loc) {
+  const dLat = 0.0025, dLng = 0.004;
+  const bbox = [loc.lng - dLng, loc.lat - dLat, loc.lng + dLng, loc.lat + dLat].map((n) => n.toFixed(5)).join(",");
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${loc.lat},${loc.lng}`;
 }

@@ -1,6 +1,6 @@
 import * as store from "./store.js";
 import { state } from "./store.js";
-import { getPosition, reverseGeocode, mapLink } from "./geo.js";
+import { getPosition, reverseGeocode, mapLink, mapEmbedUrl } from "./geo.js";
 import * as rv from "./review.js";
 
 /* ============================================================
@@ -454,6 +454,40 @@ function recentCustomHooks() {
   return [...count.entries()].filter(([, n]) => n > 1).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k]) => k);
 }
 
+async function attachLocation(personIds, eventId, pos) {
+  const attach = (extra) => {
+    for (const id of personIds) {
+      const p = store.getPerson(id);
+      if (p) store.putPerson({ ...p, location: { ...(p.location || {}), ...extra } });
+    }
+    // The event keeps the first place it was given; an auto-generated name becomes the place name.
+    const e = eventId && store.getEvent(eventId);
+    if (e && (!e.location || !e.location.place)) {
+      const loc = { ...(e.location || {}), ...extra };
+      const upd = { ...e, location: loc };
+      if (e.nameAuto && loc.place) { upd.name = loc.place; upd.nameAuto = false; }
+      store.putEvent(upd);
+    }
+  };
+  const base = { lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy ?? null };
+  attach(base);
+  const geo = await reverseGeocode(pos.lat, pos.lng);
+  if (geo) attach({ ...base, ...geo });
+}
+
+let locationWarned = false;
+function locationProblem(error) {
+  if (locationWarned) return;
+  locationWarned = true;
+  setTimeout(() => {
+    if (error === "denied") {
+      toast(isIOS() ? "Location is off — allow it in Settings › Privacy › Location Services" : "Location is blocked — allow it in your browser's site settings");
+    } else if (error === "unavailable") {
+      toast("Couldn't get your location this time");
+    }
+  }, 3000); // after the "Saved" toast
+}
+
 function saveCapture() {
   const c = capture;
   const now = Date.now();
@@ -496,25 +530,9 @@ function saveCapture() {
 
   // Location arrives in the background; attach it when it does.
   const eventId = ev.id;
-  c.pos.then(async (pos) => {
-    if (!pos) return;
-    const attach = (extra) => {
-      for (const id of ids) {
-        const p = store.getPerson(id);
-        if (p) store.putPerson({ ...p, location: { ...(p.location || {}), ...extra } });
-      }
-      // The event keeps the first place it was given; an auto-generated name becomes the place name.
-      const e = store.getEvent(eventId);
-      if (e && (!e.location || !e.location.place)) {
-        const loc = { ...(e.location || {}), ...extra };
-        const upd = { ...e, location: loc };
-        if (e.nameAuto && loc.place) { upd.name = loc.place; upd.nameAuto = false; }
-        store.putEvent(upd);
-      }
-    };
-    attach({ lat: pos.lat, lng: pos.lng });
-    const geo = await reverseGeocode(pos.lat, pos.lng);
-    if (geo) attach({ lat: pos.lat, lng: pos.lng, ...geo });
+  c.pos.then((pos) => {
+    if (pos.error) return locationProblem(pos.error);
+    attachLocation(ids, eventId, pos);
   });
 
   haptic(25);
@@ -674,8 +692,31 @@ function viewPerson(id) {
       ev ? h("button", { style: "text-align:left", onclick: () => { filter.eventId = ev.id; filter.relation = "all"; filter.q = ""; go("people"); } },
         h("b", {}, ev.name), " ", h("span", { class: "link-btn", style: "padding:0" }, "›")) : h("b", {}, "—"),
       h("span", {}, `${fmtDay(p.createdAt)}, ${fmtTime(p.createdAt)}`),
-      p.location && h("span", {}, placeLine(p.location) || "Location saved", " · ",
-        h("a", { href: mapLink(p.location), target: "_blank", rel: "noopener" }, "Map"))),
+      p.location?.lat != null
+        ? [
+            placeLine(p.location) && h("span", {}, placeLine(p.location)),
+            h("div", { class: "map" },
+              h("iframe", { src: mapEmbedUrl(p.location), title: `Map of where you met ${p.name}`, loading: "lazy", referrerpolicy: "no-referrer-when-downgrade" })),
+            h("div", { class: "row map-links" },
+              h("a", { href: mapLink(p.location), target: "_blank", rel: "noopener" }, "Open in Maps"),
+              h("span", { class: "small-print" }, "© OpenStreetMap")),
+          ]
+        : h("div", { class: "row", style: "margin-top:6px" },
+            h("span", { class: "muted" }, "No location saved"),
+            h("button", { class: "link-btn", onclick: async (e) => {
+              e.target.disabled = true;
+              e.target.textContent = "Locating…";
+              const pos = await getPosition();
+              if (pos.error) {
+                locationWarned = false;
+                locationProblem(pos.error);
+                render(true);
+                return;
+              }
+              await attachLocation([id], null, pos);
+              toast("Location added");
+              render(true);
+            } }, "Add current location"))),
 
     h("div", { class: "section" },
       h("div", { class: "lbl" }, "How was it?"),
