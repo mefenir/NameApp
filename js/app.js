@@ -8,7 +8,7 @@ import * as rv from "./review.js";
    ============================================================ */
 
 const APP_NAME = "NameApp"; // working title — change here
-const APP_VERSION = "4";
+const APP_VERSION = "5";
 const EVENT_WINDOW_MS = 4 * 60 * 60 * 1000; // captures within 4h join the current event
 
 // Default categories. Users can rename them, change the emoji and add their own (stored in "categories").
@@ -272,40 +272,48 @@ function installBanner() {
   return null;
 }
 
+function donut() {
+  // Big ring button: deep-orange base with a bright-orange arc whose rounded ends overlap it.
+  const r = 70, C = 2 * Math.PI * r, bright = C * (225 / 360);
+  const svg = `<svg viewBox="0 0 200 200" aria-hidden="true">
+    <circle cx="100" cy="100" r="${r}" fill="none" stroke="var(--accent-2)" stroke-width="60"/>
+    <circle cx="100" cy="100" r="${r}" fill="none" stroke="var(--accent)" stroke-width="60" stroke-linecap="round"
+      stroke-dasharray="${bright} ${C}" transform="rotate(115 100 100)"/>
+  </svg>`;
+  const s = h("span", { class: "donut-svg" });
+  s.innerHTML = svg;
+  return s;
+}
+
 function viewHome() {
   const ev = activeEvent();
   const due = rv.dueQueue(state.people).length;
-  const recent = [...state.people].sort((a, b) => b.createdAt - a.createdAt).slice(0, 6);
 
   return h("div", { class: "home" },
     h("div", { class: "topbar" },
-      h("div", { class: "brand" }, h("span", { class: "dot" }), APP_NAME),
+      h("div", { class: "brand" }, h("span", { class: "logo" }), APP_NAME),
       iconBtn("gear", "Settings", () => go("settings"))),
 
     state.error && h("div", { class: "banner error" }, state.error),
 
-    ev && h("div", { class: "event-now" },
-      h("div", { style: "font-size:26px" }, rel(ev.relation).emoji),
-      h("div", { class: "grow" },
-        h("div", { class: "label" }, "You're at"),
-        h("div", { class: "name" }, ev.name),
-        h("div", { class: "meta" }, `${peopleIn(ev.id).length} met · since ${fmtTime(ev.startedAt)}`)),
-      h("button", { class: "link-btn", onclick: () => { store.putEvent({ ...ev, endedAt: Date.now() }); toast("Event ended"); } }, "End")),
+    h("h1", { class: "hero" }, ev ? ["Met someone", h("br"), "else?"] : ["Met", h("br"), "someone?"]),
 
-    h("div", { class: "big-wrap" },
-      h("button", { class: "big-btn", id: "big-btn", onclick: () => { haptic(); go("capture"); } },
-        h("span", { class: "plus" }, "+"),
-        h("span", { class: "txt" }, "Met someone"))),
-    h("p", { class: "hint" }, ev ? `Adds to ${ev.name}` : "Tap right after you meet someone"),
+    ev && h("div", { class: "event-pill" },
+      h("span", { class: "grow" }, `${rel(ev.relation).emoji} ${ev.name}`, h("span", { class: "muted" }, ` · ${peopleIn(ev.id).length} met`)),
+      h("button", { class: "mini-btn", onclick: () => { store.putEvent({ ...ev, endedAt: Date.now() }); toast("Event ended"); } }, "End")),
 
-    due > 0 && h("button", { class: "review-nudge", onclick: () => go("review") },
-      h("span", { class: "emoji" }, "🧠"),
-      h("div", {}, h("b", {}, `${due} ${due === 1 ? "name" : "names"} to review`), h("span", {}, `About ${Math.max(1, Math.round(due * 8 / 60))} min`)),
-      h("span", { class: "chev" }, "›")),
+    h("button", { class: "donut", id: "big-btn", "aria-label": "Met someone — add a name", onclick: () => { haptic(); go("capture"); } },
+      donut(), h("span", { class: "donut-plus" }, "+")),
 
-    recent.length > 0 && h("div", {},
-      h("h2", {}, "Recently met"),
-      h("div", { class: "recent" }, recent.map((p) => h("button", { class: "chip", onclick: () => go("person/" + p.id) }, p.seeAgain ? "⭐ " : "", p.name)))),
+    h("div", { class: "stats" },
+      h("button", { class: "stat", onclick: () => go("people") }, h("span", { class: "k" }, "Met"), h("span", { class: "v" }, state.people.length)),
+      h("button", { class: "stat big", onclick: () => go("review") }, h("span", { class: "k" }, "To review"), h("span", { class: "v" }, due))),
+
+    h("div", { class: "split" },
+      h("div", { class: "cell" },
+        h("button", { class: "circle-btn", onclick: () => go("review") }, due ? "Review" : "Practise")),
+      h("div", { class: "cell" },
+        h("button", { class: "dots", "aria-label": "See everyone", onclick: () => go("people") }, "• • •"))),
 
     installBanner(),
     state.mode === "local" && state.people.length === 0 &&
@@ -625,7 +633,7 @@ function viewPeople() {
             h("div", { class: "t" }, ev ? `${rel(ev.relation).emoji} ${ev.name}` : "Other"),
             ev && h("div", { class: "m" }, [fmtDate(ev.startedAt), placeLine(ev.location)].filter(Boolean).join(" · "))),
           ev && h("button", { class: "rename", onclick: () => renameEvent(ev) }, "Rename")),
-        h("div", { class: "cards" }, ps.map(card)));
+        h("div", { class: "stack-cards" }, ps.map((p) => card(p, drawResults))));
     }));
   };
 
@@ -655,12 +663,55 @@ function viewPeople() {
   return wrap;
 }
 
-function card(p) {
+let openCard = null; // id of the expanded person card
+
+const TEXT_ON = { yellow: "var(--ink)" };
+function card(p, redraw) {
+  const ev = store.getEvent(p.eventId);
+  const c = rel(p.relation);
   const tint = colorOf(p.color);
-  return h("button", { class: "card", style: tint ? `--card-tint:${tint}` : "", onclick: () => go("person/" + p.id) },
-    h("div", { class: "top" }, avatar(p), h("span", { class: "badges" }, (vibe(p.vibe)?.emoji || ""), p.seeAgain ? " ⭐" : "")),
-    h("div", { class: "nm" }, p.name),
-    (p.hooks?.length || p.note) && h("div", { class: "hk" }, (p.hooks || []).join(" · ") || p.note));
+  const isOpen = openCard === p.id;
+  const v = vibe(p.vibe);
+  const toggle = () => { openCard = isOpen ? null : p.id; haptic(6); redraw(); };
+
+  const head = h("button", {
+    class: "pc-head", "aria-expanded": String(isOpen), onclick: toggle,
+    style: tint ? `--pc-bg:${tint};--pc-ink:${TEXT_ON[p.color] || "#fff"}` : "",
+  },
+    h("div", { class: "pc-text" },
+      h("div", { class: "pc-label" }, `+ ${c.emoji} ${!ev ? c.label : ev.name.startsWith(c.label) ? ev.name : c.label + " · " + ev.name}`),
+      h("div", { class: "pc-name" }, p.name)),
+    (v || p.seeAgain) && h("span", { class: "pc-ico" }, p.seeAgain ? "⭐" : v.emoji),
+    h("span", { class: "pc-avatar" }, initials(p.name)));
+
+  if (!isOpen) return h("div", { class: "pcard" }, head);
+
+  const loc = p.location?.lat != null ? p.location : null;
+  const where = placeLine(p.location) || ev?.name || "Somewhere";
+  const tiles = h("div", { class: "pc-tiles" },
+    loc && h("a", { class: "pc-tile map-tile", href: mapLink(loc), target: "_blank", rel: "noopener", "aria-label": "Open in Maps" },
+      h("iframe", { src: mapEmbedUrl(loc), title: "Where you met", loading: "lazy", tabindex: "-1" })),
+    h("div", { class: "pc-tile" }, h("span", { class: "big" }, v ? v.emoji : "–"), h("span", {}, v ? v.label : "No vibe")),
+    h("div", { class: "pc-tile" }, h("span", { class: "big num" }, fmtTime(p.createdAt)), h("span", {}, fmtDate(p.createdAt))));
+
+  const body = h("div", { class: "pc-body" },
+    h("div", { class: "pc-actions" },
+      h("span", { class: "pc-mark" }, c.emoji),
+      h("span", { class: "grow" }),
+      h("button", { class: "ring-btn" + (p.seeAgain ? " on" : ""), "aria-label": p.seeAgain ? "Remove see again" : "Want to see again",
+        onclick: () => { store.putPerson({ ...p, seeAgain: !p.seeAgain }); } }, "⭐"),
+      h("button", { class: "ring-btn", "aria-label": `Edit ${p.name}`, onclick: () => go("person/" + p.id) }, "✎"),
+      h("button", { class: "ring-btn dark", "aria-label": `Open ${p.name}`, onclick: () => go("person/" + p.id) }, "▶")),
+    h("div", { class: "pc-title" }, h("b", {}, `Met at ${where}`), h("span", { class: "muted" }, fmtDay(p.createdAt))),
+    tiles,
+    h("div", { class: "pc-panel" },
+      h("div", { class: "row" }, h("span", {}, "What to remember"), h("button", { class: "muted small-link", onclick: () => go("person/" + p.id) }, "See all")),
+      (p.hooks || []).length
+        ? h("div", { class: "pc-hooks" }, p.hooks.map((hk) => h("b", {}, hk)))
+        : h("p", { class: "muted", style: "margin:8px 0 0" }, "No hooks yet — tap ✎ to add one."),
+      p.note && h("p", { class: "pc-note" }, p.note)));
+
+  return h("div", { class: "pcard open" }, head, body);
 }
 
 function renameEvent(ev) {
