@@ -1,6 +1,6 @@
 import * as store from "./store.js";
 import { state } from "./store.js";
-import { getPosition, reverseGeocode, mapLink, mapEmbedUrl } from "./geo.js";
+import { getPosition, reverseGeocode, mapLink, mapEmbedUrl, permissionState, geoDebug } from "./geo.js";
 import * as rv from "./review.js";
 
 /* ============================================================
@@ -8,13 +8,22 @@ import * as rv from "./review.js";
    ============================================================ */
 
 const APP_NAME = "NameApp"; // working title — change here
+const APP_VERSION = "4";
 const EVENT_WINDOW_MS = 4 * 60 * 60 * 1000; // captures within 4h join the current event
 
-const RELATIONS = [
-  { id: "friends", label: "Friends", one: "Friend", emoji: "🧡" },
-  { id: "work", label: "Work", one: "Work", emoji: "💼" },
-  { id: "neighbours", label: "Neighbours", one: "Neighbour", emoji: "🏡" },
-  { id: "other", label: "Other", one: "Other", emoji: "✨" },
+// Default categories. Users can rename them, change the emoji and add their own (stored in "categories").
+const DEFAULT_CATEGORIES = [
+  { id: "friend", label: "Friend", emoji: "🧡", order: 0 },
+  { id: "family", label: "Family", emoji: "🏠", order: 1 },
+  { id: "work", label: "Work", emoji: "💼", order: 2 },
+  { id: "school", label: "School", emoji: "🎒", order: 3 },
+  { id: "gym", label: "Gym", emoji: "🏋️", order: 4 },
+  { id: "other", label: "Other", emoji: "✨", order: 99 },
+];
+const LEGACY_CATEGORY = { friends: "friend", neighbours: "other" };
+const EMOJI_CHOICES = [
+  "🧡", "❤️", "🏠", "👨‍👩‍👧", "💼", "🏢", "🎒", "🎓", "🏋️", "⚽", "🎾", "🏃",
+  "🎉", "🍻", "☕", "🍽️", "✈️", "⛪", "🎵", "🎨", "🐶", "👶", "🏘️", "✨",
 ];
 const VIBES = [
   { id: "great", label: "Great chat", emoji: "😄" },
@@ -31,7 +40,17 @@ const COLORS = [
   { id: "pink", v: "#e2659b" }, { id: "grey", v: "#8b8d98" },
 ];
 
-const rel = (id) => RELATIONS.find((r) => r.id === id) || RELATIONS[3];
+function categories() {
+  const byId = new Map(DEFAULT_CATEGORIES.map((c) => [c.id, { ...c }]));
+  for (const c of state.categories) byId.set(c.id, { ...(byId.get(c.id) || {}), ...c });
+  return [...byId.values()].filter((c) => !c.deleted).sort((a, b) => (a.order ?? 50) - (b.order ?? 50));
+}
+function rel(id) {
+  const list = categories();
+  const key = LEGACY_CATEGORY[id] || id;
+  return list.find((c) => c.id === key) || list.find((c) => c.id === "other") || { id: "other", label: "Other", emoji: "✨" };
+}
+const catIndex = (id) => Math.max(0, categories().findIndex((c) => c.id === rel(id).id));
 const vibe = (id) => VIBES.find((v) => v.id === id);
 const colorOf = (id) => COLORS.find((c) => c.id === id)?.v;
 
@@ -102,7 +121,7 @@ function placeLine(loc) {
 }
 function avatar(p, lg) {
   const tint = colorOf(p.color);
-  const bg = tint ? `color-mix(in srgb, ${tint} 30%, var(--surface))` : `var(--rel-${p.relation || "other"})`;
+  const bg = tint ? `color-mix(in srgb, ${tint} 30%, var(--surface))` : `var(--cat-${catIndex(p.relation) % 6})`;
   return h("div", { class: "avatar" + (lg ? " lg" : ""), style: `--av:${bg}` }, initials(p.name));
 }
 const haptic = (ms = 12) => navigator.vibrate?.(ms);
@@ -201,7 +220,7 @@ function render(force) {
     if (a && view.contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return updateTabs(r);
   }
   document.body.classList.toggle("fullscreen", r.name === "capture");
-  const fn = { home: viewHome, capture: viewCapture, people: viewPeople, person: viewPerson, review: viewReview, settings: viewSettings }[r.name] || viewHome;
+  const fn = { home: viewHome, capture: viewCapture, people: viewPeople, person: viewPerson, review: viewReview, settings: viewSettings, categories: viewCategories }[r.name] || viewHome;
   if (!state.ready && r.name !== "settings") {
     view.replaceChildren(h("div", { class: "empty" }, h("span", { class: "emoji" }, "⏳"), "Loading…"));
   } else {
@@ -330,9 +349,10 @@ function viewCapture() {
       h("h1", {}, "What's the occasion?"),
       h("p", { class: "sub" }, "Asked once — everyone you add in the next few hours joins this event."),
       h("div", { class: "grid2" },
-        RELATIONS.map((r) =>
+        categories().map((r) =>
           h("button", { class: "tile", onclick: () => { haptic(); c.relation = r.id; c.eventId = null; c.step = "names"; rerenderCapture(); } },
-            h("span", { class: "emoji" }, r.emoji), r.label))));
+            h("span", { class: "emoji" }, r.emoji), r.label))),
+      h("p", { class: "hint", style: "margin-top:16px" }, h("button", { class: "link-btn", onclick: () => go("categories") }, "Edit categories")));
   }
 
   /* --- Names --- */
@@ -366,7 +386,7 @@ function viewCapture() {
       h("h1", {}, c.names.length ? "Anyone else?" : "Name?"),
       h("p", { class: "sub" },
         ev ? [`${rel(ev.relation).emoji} ${ev.name} · `, h("button", { class: "link-btn", onclick: () => { c.step = "relation"; c.eventId = null; rerenderCapture(); } }, "new event")]
-           : [`${rel(c.relation).emoji} New ${rel(c.relation).label.toLowerCase()} event · `, h("button", { class: "link-btn", onclick: back("relation") }, "change")]),
+           : [`${rel(c.relation).emoji} New event · ${rel(c.relation).label} · `, h("button", { class: "link-btn", onclick: back("relation") }, "change")]),
       c.names.length > 0 && h("div", { class: "added" },
         c.names.map((n, idx) => h("button", { class: "chip on", "aria-label": `Remove ${n}`, onclick: () => { c.names.splice(idx, 1); rerenderCapture(); } }, n, h("span", { class: "x" }, "✕")))),
       input,
@@ -458,7 +478,7 @@ async function attachLocation(personIds, eventId, pos) {
   const attach = (extra) => {
     for (const id of personIds) {
       const p = store.getPerson(id);
-      if (p) store.putPerson({ ...p, location: { ...(p.location || {}), ...extra } });
+      if (p) store.putPerson({ ...p, location: { ...(p.location || {}), ...extra }, locationError: null });
     }
     // The event keeps the first place it was given; an auto-generated name becomes the place name.
     const e = eventId && store.getEvent(eventId);
@@ -496,9 +516,9 @@ function saveCapture() {
   if (!ev) {
     ev = {
       id: store.newId(),
-      name: `${rel(c.relation).label} ${partOfDay(now)}`,
+      name: `${rel(c.relation).label} · ${partOfDay(now)}`,
       nameAuto: true,
-      relation: c.relation || "other",
+      relation: rel(c.relation || "other").id,
       startedAt: now,
       lastAt: now,
       location: null,
@@ -531,7 +551,13 @@ function saveCapture() {
   // Location arrives in the background; attach it when it does.
   const eventId = ev.id;
   c.pos.then((pos) => {
-    if (pos.error) return locationProblem(pos.error);
+    if (pos.error) {
+      for (const id of ids) {
+        const p = store.getPerson(id);
+        if (p) store.putPerson({ ...p, locationError: pos.error });
+      }
+      return locationProblem(pos.error);
+    }
     attachLocation(ids, eventId, pos);
   });
 
@@ -557,7 +583,7 @@ const filter = { q: "", relation: "all", eventId: "all" };
 
 function matches(p) {
   if (filter.relation === "star" && !p.seeAgain) return false;
-  if (!["all", "star"].includes(filter.relation) && p.relation !== filter.relation) return false;
+  if (!["all", "star"].includes(filter.relation) && rel(p.relation).id !== filter.relation) return false;
   if (filter.eventId !== "all" && p.eventId !== filter.eventId) return false;
   const q = filter.q.trim().toLowerCase();
   if (q) {
@@ -609,7 +635,7 @@ function viewPeople() {
   });
 
   const relChips = h("div", { class: "chips scroll" },
-    [{ id: "all", label: "All" }, ...RELATIONS.map((r) => ({ id: r.id, label: `${r.emoji} ${r.label}` })), { id: "star", label: "⭐ See again" }]
+    [{ id: "all", label: "All" }, ...categories().map((r) => ({ id: r.id, label: `${r.emoji} ${r.label}` })), { id: "star", label: "⭐ See again" }]
       .map((o) => h("button", { class: "chip" + (filter.relation === o.id ? " on" : ""), onclick: () => { filter.relation = o.id; render(true); } }, o.label)));
 
   const events = [...state.events].sort((a, b) => b.startedAt - a.startedAt);
@@ -702,7 +728,7 @@ function viewPerson(id) {
               h("span", { class: "small-print" }, "© OpenStreetMap")),
           ]
         : h("div", { class: "row", style: "margin-top:6px" },
-            h("span", { class: "muted" }, "No location saved"),
+            h("span", { class: "muted" }, p.locationError === "denied" ? "No location — it was blocked" : p.locationError ? "No location — phone didn't answer" : "No location saved"),
             h("button", { class: "link-btn", onclick: async (e) => {
               e.target.disabled = true;
               e.target.textContent = "Locating…";
@@ -738,8 +764,11 @@ function viewPerson(id) {
         oninput: (e) => saveSoon({ note: e.target.value }) }, p.note || "")),
 
     h("div", { class: "section" },
-      h("div", { class: "lbl" }, "Relation"),
-      seg(RELATIONS.map((x) => ({ ...x, label: x.one })), p.relation, (v) => v && save({ relation: v }))),
+      h("div", { class: "row", style: "margin-bottom:10px" },
+        h("div", { class: "lbl", style: "margin:0" }, "Category"),
+        h("button", { class: "link-btn", style: "padding:0", onclick: () => go("categories") }, "Edit")),
+      h("div", { class: "chips" },
+        categories().map((c) => h("button", { class: "chip" + (rel(p.relation).id === c.id ? " on" : ""), onclick: () => { save({ relation: c.id }); render(true); } }, `${c.emoji} ${c.label}`)))),
 
     h("div", { class: "section" },
       h("div", { class: "lbl" }, "Card colour"),
@@ -828,7 +857,7 @@ function viewReview() {
     h("div", { class: "rv-progress" }, h("i", { style: `width:${(s.i / ids.length) * 100}%` })),
     h("div", { class: "flash", style: tint ? `--card-tint:${tint}` : "" },
       h("div", { class: "ctx" },
-        h("b", {}, ev ? `${rel(ev.relation).emoji} ${ev.name}` : rel(p.relation).one), h("br"),
+        h("b", {}, ev ? `${rel(ev.relation).emoji} ${ev.name}` : rel(p.relation).label), h("br"),
         [fmtDay(p.createdAt), placeLine(p.location)].filter(Boolean).join(" · ")),
       (v || p.seeAgain) && h("div", { class: "vibe-line" }, v ? `${v.emoji} ${v.label}` : "", p.seeAgain ? "  ⭐ Want to see again" : ""),
       (p.hooks || []).length > 0 && h("div", { class: "chips hooks" }, p.hooks.map((hk) => h("span", { class: "chip" }, hk))),
@@ -929,16 +958,65 @@ function viewSettings() {
       ? h("button", { class: "btn primary", onclick: async () => { installPrompt.prompt(); await installPrompt.userChoice; installPrompt = null; render(true); } }, `Install ${APP_NAME}`)
       : h("p", { class: "muted", style: "margin:0" }, "In Safari, tap Share, then “Add to Home Screen”."));
 
+  const cats = categories();
+  const catSection = h("div", { class: "section stack" },
+    h("div", { class: "lbl" }, "Categories"),
+    h("p", { style: "margin:0" }, cats.map((c) => `${c.emoji} ${c.label}`).join("   ")),
+    h("button", { class: "btn secondary", onclick: () => go("categories") }, "Rename or add categories"));
+
+  const diagOut = h("div", { class: "diag", hidden: true });
+  const locSection = h("div", { class: "section stack" },
+    h("div", { class: "lbl" }, "Location"),
+    h("p", { class: "muted", style: "margin:0" }, "Not seeing where you met someone? Run a quick check."),
+    h("button", { class: "btn secondary", onclick: (e) => runLocationCheck(e.currentTarget, diagOut) }, "Check location"),
+    diagOut);
+
   return h("div", {},
     h("div", { class: "topbar" }, iconBtn("back", "Back", () => go("")), h("span", {}), h("span", { style: "width:44px" })),
     h("h1", {}, "Settings"),
     account,
+    catSection,
+    locSection,
     install,
     data,
     h("div", { class: "section stack" },
       h("div", { class: "lbl" }, "About"),
       h("p", { class: "small-print", style: "margin:0" },
-        `${APP_NAME} saves names privately for you — nothing is shared with anyone. Place names come from OpenStreetMap (© OpenStreetMap contributors).`)));
+        `${APP_NAME} saves names privately for you — nothing is shared with anyone. Place names come from OpenStreetMap (© OpenStreetMap contributors).`),
+      h("p", { class: "small-print", style: "margin:0" }, `Version ${APP_VERSION} · ${state.mode === "firebase" ? "synced" : "local mode"}`)));
+}
+
+async function runLocationCheck(btn, out) {
+  btn.disabled = true;
+  btn.textContent = "Checking… (allow location if asked)";
+  out.hidden = false;
+  const lines = [];
+  const show = () => out.replaceChildren(...lines.map((l) => h("div", { class: l[0] }, l[1])));
+  const add = (cls, text) => { lines.push([cls, text]); show(); };
+
+  add("", `Secure page: ${window.isSecureContext ? "yes" : "NO — location needs https"}`);
+  add("", `Installed app: ${isStandalone() ? "yes" : "no (browser)"}`);
+  add("", `Permission: ${await permissionState()}`);
+  const t0 = Date.now();
+  const pos = await getPosition();
+  const secs = ((Date.now() - t0) / 1000).toFixed(1);
+  if (pos.error) {
+    add("bad", `✗ No location after ${secs}s — ${pos.error}${pos.code ? ` (code ${pos.code})` : ""}: ${pos.message || ""}`);
+    if (pos.error === "denied") {
+      add("tip", isIOS()
+        ? "Fix: iPhone Settings › Privacy & Security › Location Services › turn on, then Safari Websites › “While Using the App”. Then reload this page."
+        : "Fix: allow location for this site in your browser's site settings, then reload.");
+    } else {
+      add("tip", "Try again near a window or with Wi-Fi on. If you use a VPN or a privacy/DNS app, try with it paused.");
+    }
+  } else {
+    add("ok", `✓ Got location in ${secs}s: ${pos.lat}, ${pos.lng} (±${pos.accuracy} m)`);
+    const geo = await reverseGeocode(pos.lat, pos.lng);
+    add(geo ? "ok" : "bad", geo ? `✓ Place: ${placeLine(geo) || "(unnamed spot)"}` : `✗ ${geoDebug.lastError || "Place lookup failed"} — the map still works`);
+    out.append(h("div", { class: "map" }, h("iframe", { src: mapEmbedUrl(pos), title: "Your current location", loading: "lazy" })));
+  }
+  btn.disabled = false;
+  btn.textContent = "Check again";
 }
 
 function exportJson() {
@@ -949,6 +1027,70 @@ function exportJson() {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/* ============================================================
+   Categories editor
+   ============================================================ */
+
+let emojiFor = null; // id of the category whose emoji picker is open
+
+function firstGrapheme(str) {
+  const t = (str || "").trim();
+  if (!t) return "";
+  if (window.Intl?.Segmenter) return [...new Intl.Segmenter().segment(t)][0].segment;
+  return [...t][0];
+}
+
+function viewCategories() {
+  const list = categories();
+  const saveCat = (c, patch) => store.putCategory({ id: c.id, label: c.label, emoji: c.emoji, order: c.order ?? 50, ...patch });
+  const inUse = (id) => state.people.some((p) => rel(p.relation).id === id) || state.events.some((e) => rel(e.relation).id === id);
+
+  const rows = list.map((c) => {
+    const nameInput = h("input", {
+      class: "text-input", value: c.label, "aria-label": `Name for ${c.label}`, maxlength: "24", autocapitalize: "words",
+      onchange: (e) => { const v = e.target.value.trim(); if (v && v !== c.label) { saveCat(c, { label: v }); toast("Saved"); } else e.target.value = c.label; },
+      onkeydown: (e) => { if (e.key === "Enter") e.target.blur(); },
+    });
+    const row = h("div", { class: "cat-row" },
+      h("button", { class: "cat-emoji" + (emojiFor === c.id ? " on" : ""), "aria-label": `Change emoji for ${c.label}`, onclick: () => { emojiFor = emojiFor === c.id ? null : c.id; render(true); } }, c.emoji),
+      nameInput,
+      c.id !== "other" && !inUse(c.id)
+        ? h("button", { class: "icon-btn", "aria-label": `Delete ${c.label}`, onclick: () => { if (confirm(`Delete “${c.label}”?`)) { saveCat(c, { deleted: true }); render(true); } } }, icon("close"))
+        : h("span", { style: "width:44px;flex:0 0 auto" }));
+    if (emojiFor !== c.id) return row;
+    const custom = h("input", {
+      class: "text-input", placeholder: "Or type any emoji", "aria-label": "Type an emoji", style: "max-width:180px",
+      oninput: (e) => { const g = firstGrapheme(e.target.value); if (g) { saveCat(c, { emoji: g }); emojiFor = null; e.target.blur(); render(true); } },
+    });
+    return h("div", {}, row,
+      h("div", { class: "emoji-grid" },
+        EMOJI_CHOICES.map((em) => h("button", { class: em === c.emoji ? "on" : "", onclick: () => { saveCat(c, { emoji: em }); emojiFor = null; render(true); } }, em))),
+      custom);
+  });
+
+  const addInput = h("input", { class: "text-input", placeholder: "New category, e.g. Book club", maxlength: "24", "aria-label": "New category name",
+    onkeydown: (e) => { if (e.key === "Enter") { e.preventDefault(); add(); } } });
+  const add = () => {
+    const v = addInput.value.trim();
+    if (!v) return addInput.focus();
+    const maxOrder = Math.max(0, ...list.filter((c) => c.id !== "other").map((c) => c.order ?? 0));
+    const id = store.newId();
+    store.putCategory({ id, label: v, emoji: "🏷️", order: maxOrder + 1 });
+    emojiFor = id;
+    addInput.value = "";
+    render(true);
+  };
+
+  return h("div", {},
+    h("div", { class: "topbar" }, iconBtn("back", "Back", () => (history.length > 1 ? history.back() : go("settings"))), h("span", {}), h("span", { style: "width:44px" })),
+    h("h1", {}, "Categories"),
+    h("p", { class: "muted", style: "margin-top:-4px" }, "Tap an emoji to change it, tap a name to rename it. Changes apply to everyone you've already saved."),
+    h("div", { class: "section stack" }, rows),
+    h("div", { class: "section stack" },
+      h("div", { class: "lbl" }, "Add a category"),
+      h("div", { class: "row" }, addInput, h("button", { class: "btn primary small", onclick: add }, "Add"))));
 }
 
 /* ============================================================

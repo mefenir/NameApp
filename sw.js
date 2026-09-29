@@ -1,6 +1,6 @@
 // Service worker: makes NameApp open instantly and work offline.
 // Bump VERSION whenever app files change so users get the update.
-const VERSION = "nameapp-v3";
+const VERSION = "nameapp-v4";
 const SHELL = [
   "./",
   "index.html",
@@ -35,17 +35,22 @@ self.addEventListener("fetch", (e) => {
   const firebaseSdk = url.hostname === "www.gstatic.com" && url.pathname.startsWith("/firebasejs/");
   if (!sameOrigin && !firebaseSdk) return; // Firestore, Auth, map lookups go straight to the network
 
-  // Stale-while-revalidate: answer from cache immediately, refresh in the background.
+  // App files: network first so updates show up straight away; cache when offline.
+  // Firebase SDK files never change per version, so they come from cache first.
   e.respondWith(
     caches.open(VERSION).then(async (cache) => {
-      const cached = await cache.match(req, { ignoreSearch: sameOrigin });
-      const network = fetch(req)
-        .then((res) => {
-          if (res.ok) cache.put(req, res.clone());
-          return res;
-        })
-        .catch(() => cached || (req.mode === "navigate" ? cache.match("index.html") : undefined));
-      return cached || network;
+      if (firebaseSdk) {
+        const hit = await cache.match(req);
+        if (hit) return hit;
+      }
+      try {
+        const res = await fetch(req, sameOrigin ? { cache: "no-cache" } : undefined);
+        if (res.ok) cache.put(req, res.clone());
+        return res;
+      } catch {
+        const cached = await cache.match(req, { ignoreSearch: sameOrigin });
+        return cached || (req.mode === "navigate" ? cache.match("index.html") : Response.error());
+      }
     })
   );
 });

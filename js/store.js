@@ -11,6 +11,7 @@ export const state = {
   user: null, // { uid, email, isAnonymous }
   people: [],
   events: [],
+  categories: [], // user edits to categories (defaults live in app.js)
   error: null,
 };
 
@@ -59,12 +60,13 @@ const local = {
     }
     state.people = data?.people || [];
     state.events = data?.events || [];
+    state.categories = data?.categories || [];
     state.user = { uid: "local", email: null, isAnonymous: true };
     state.ready = true;
     emit();
   },
   save() {
-    const data = { people: state.people, events: state.events };
+    const data = { people: state.people, events: state.events, categories: state.categories };
     try {
       localStorage.setItem(LS_KEY, JSON.stringify(data));
     } catch {
@@ -84,6 +86,7 @@ const local = {
   async removeAll() {
     state.people = [];
     state.events = [];
+    state.categories = [];
     this.save();
     emit();
   },
@@ -121,6 +124,7 @@ const firebase = {
         state.user = null;
         state.people = [];
         state.events = [];
+        state.categories = [];
         emit();
         try {
           await a.signInAnonymously(auth);
@@ -132,7 +136,7 @@ const firebase = {
         return;
       }
       state.user = { uid: user.uid, email: user.email, isAnonymous: user.isAnonymous };
-      for (const col of ["people", "events"]) {
+      for (const col of ["people", "events", "categories"]) {
         const ref = f.collection(db, "users", user.uid, col);
         unsubs.push(
           f.onSnapshot(
@@ -171,9 +175,11 @@ const firebase = {
     const docs = [
       ...state.people.map((p) => ["people", p.id]),
       ...state.events.map((e) => ["events", e.id]),
+      ...state.categories.map((c) => ["categories", c.id]),
     ];
     state.people = [];
     state.events = [];
+    state.categories = [];
     emit();
     for (let i = 0; i < docs.length; i += 400) {
       const batch = fb.f.writeBatch(fb.db);
@@ -210,6 +216,9 @@ export function putEvent(e) {
 export function deleteEvent(id) {
   backend.remove("events", id);
 }
+export function putCategory(c) {
+  backend.put("categories", c);
+}
 export function getPerson(id) {
   return state.people.find((p) => p.id === id);
 }
@@ -225,6 +234,7 @@ export function exportData() {
     exportedAt: new Date().toISOString(),
     people: state.people,
     events: state.events,
+    categories: state.categories,
   };
 }
 
@@ -266,15 +276,16 @@ export async function signIn(email, password) {
   const { a, auth } = fb;
   // Carry over anything captured before signing in.
   const carry = auth.currentUser?.isAnonymous
-    ? { people: [...state.people], events: [...state.events] }
+    ? { people: [...state.people], events: [...state.events], categories: [...state.categories] }
     : null;
   try {
     await a.signInWithEmailAndPassword(auth, email, password);
   } catch (e) {
     throw new Error(friendlyError(e));
   }
-  if (carry && (carry.people.length || carry.events.length)) {
+  if (carry && (carry.people.length || carry.events.length || carry.categories.length)) {
     await waitFor(() => state.user && !state.user.isAnonymous);
+    carry.categories.forEach((c) => firebase.put("categories", c));
     carry.events.forEach((ev) => firebase.put("events", ev));
     carry.people.forEach((p) => firebase.put("people", p));
   }
