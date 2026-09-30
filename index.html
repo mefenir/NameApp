@@ -3,46 +3,44 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>NameApp</title>
+  <title>redspecs</title>
   <meta name="description" content="Save a name in seconds after you meet someone — and actually remember it." />
-  <meta name="theme-color" content="#dcd7ce" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#1b1917" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#202020" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="NameApp" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="redspecs" />
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="icon" href="icons/icon-192.png" type="image/png" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
   <link rel="stylesheet" href="css/app.css" />
 </head>
 <body>
+  <div id="splash" aria-label="redspecs">
+    <span class="logo-mark"></span>
+    <span class="splash-name">redspecs</span>
+  </div>
   <div id="app">
     <main id="view" aria-live="polite"></main>
   </div>
   <nav id="tabs" aria-label="Main">
     <div class="inner">
-      <a href="#/" data-tab="home">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
-        <span class="lbl">Add</span>
+      <a href="#/" data-tab="home" aria-label="Home">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M13.6 7h4.8v6.6H25v4.8h-6.6V25h-4.8v-6.6H7v-4.8h6.6z" fill="currentColor"/></svg>
       </a>
-      <a href="#/people" data-tab="people">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="8" height="7" rx="2"/><rect x="13" y="4" width="8" height="7" rx="2"/><rect x="3" y="13" width="8" height="7" rx="2"/><rect x="13" y="13" width="8" height="7" rx="2"/></svg>
-        <span class="lbl">People</span>
+      <a href="#/people" data-tab="people" aria-label="People">
+        <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="miter" aria-hidden="true"><path d="M11 4.5h10l6.5 6.5v10L21 27.5H11L4.5 21V11z"/><path d="M12.5 11.5v4M19.5 11.5v4"/><path d="M9.5 18.5l2.5 2.5h8l2.5-2.5"/></svg>
       </a>
-      <a href="#/calendar" data-tab="calendar">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
-        <span class="lbl">Calendar</span>
+      <a href="#/calendar" data-tab="calendar" aria-label="Calendar">
+        <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="miter" aria-hidden="true"><path d="M11.5 5.5h9l6 5 1.5 5.5-1.5 5.5-6 5h-9l-6-5L4 16l1.5-5.5z"/><path d="M16 5.5c-3.2 3-4.6 6.5-4.6 10.5s1.4 7.5 4.6 10.5c3.2-3 4.6-6.5 4.6-10.5S19.2 8.5 16 5.5z"/><path d="M5 12h22M5 20h22"/></svg>
       </a>
-      <a href="#/review" data-tab="review">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="14" rx="3"/><path d="M9 12l2 2 4-4"/></svg>
-        <span class="lbl">Review</span>
-        <span class="badge" id="review-badge" hidden></span>
+      <a href="#/review" data-tab="review" aria-label="Review">
+        <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 4.5h9.5l-5 7.5h7.5L12 27.5l3-10.5H8.5z"/></svg>
       </a>
     </div>
   </nav>
   <div id="toast" role="status"><span id="toast-text"></span><button id="toast-action" hidden></button></div>
-  <noscript>NameApp needs JavaScript to run.</noscript>
+  <noscript>redspecs needs JavaScript to run.</noscript>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

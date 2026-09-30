@@ -7,21 +7,20 @@ import * as rv from "./review.js";
    Constants
    ============================================================ */
 
-const APP_NAME = "NameApp"; // working title — change here
-const APP_VERSION = "9";
+const APP_NAME = "redspecs";
+const APP_VERSION = "10";
 const EVENT_WINDOW_MS = 4 * 60 * 60 * 1000; // captures within 4h join the current event
 
 // Default categories. Users can rename them, change the colour and add their own (stored in "categories").
 // Each category has a colour pair; a new event takes its category's colour, so its cards match.
 const DEFAULT_CATEGORIES = [
-  { id: "friend", label: "Friend", color: "orange", emoji: "🧡", order: 0 },
-  { id: "family", label: "Family", color: "pink", emoji: "🏠", order: 1 },
-  { id: "work", label: "Work", color: "yellow", emoji: "💼", order: 2 },
-  { id: "school", label: "School", color: "green", emoji: "🎒", order: 3 },
-  { id: "gym", label: "Gym", color: "wine", emoji: "🏋️", order: 4 },
-  { id: "other", label: "Other", color: "grey", emoji: "✨", order: 99 },
+  { id: "friend", label: "friends", color: "red1", order: 0 },
+  { id: "family", label: "family", color: "red2", order: 1 },
+  { id: "work", label: "work", color: "red3", order: 2 },
+  { id: "club", label: "club", color: "red4", order: 3 },
+  { id: "other", label: "other", color: "red5", order: 99 },
 ];
-const LEGACY_CATEGORY = { friends: "friend", neighbours: "other" };
+const LEGACY_CATEGORY = { friends: "friend", neighbours: "other", gym: "club", school: "other" };
 const EMOJI_CHOICES = [
   "🧡", "❤️", "🏠", "👨‍👩‍👧", "💼", "🏢", "🎒", "🎓", "🏋️", "⚽", "🎾", "🏃",
   "🎉", "🍻", "☕", "🍽️", "✈️", "⛪", "🎵", "🎨", "🐶", "👶", "🏘️", "✨",
@@ -32,8 +31,8 @@ const VIBES = [
   { id: "brief", label: "Brief", emoji: "😐" },
 ];
 const HOOK_CHIPS = [
-  "glasses", "beard", "tall", "short", "curly hair", "long hair", "bald", "tattoo",
-  "accent", "big smile", "the host", "a parent", "colleague", "friend of a friend",
+  "tall", "short", "big smile", "glasses", "tattoo", "beard",
+  "accent", "host", "colleague", "bald", "friend of a friend",
 ];
 const COLORS = [
   { id: "red", v: "#e5484d" }, { id: "orange", v: "#f08c3a" }, { id: "yellow", v: "#f2c230" },
@@ -57,6 +56,11 @@ const colorOf = (id) => COLORS.find((c) => c.id === id)?.v;
 
 // Every event gets its own colour; all its people cards use it. Text colour is picked for contrast (all ≥ 4.5:1).
 const EVENT_COLORS = [
+  { id: "red1", bg: "#da2f42", fg: "#fff6eb" },
+  { id: "red2", bg: "#c9273e", fg: "#fff6eb" },
+  { id: "red3", bg: "#af1c31", fg: "#fff6eb" },
+  { id: "red4", bg: "#93152d", fg: "#fff6eb" },
+  { id: "red5", bg: "#751128", fg: "#fff6eb" },
   { id: "orange", bg: "#ec682c", fg: "#651d28" },
   { id: "pink", bg: "#e7a3f9", fg: "#651e28" },
   { id: "yellow", bg: "#f7ce46", fg: "#3e310a" },
@@ -258,8 +262,9 @@ function render(force) {
     const a = document.activeElement;
     if (a && view.contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return updateTabs(r);
   }
-  document.body.classList.toggle("fullscreen", r.name === "capture");
+  document.body.classList.remove("fullscreen");
   document.body.classList.toggle("on-home", r.name === "home" || !r.name);
+  document.body.dataset.screen = r.name === "capture" ? "capture" : r.name === "home" || !r.name ? "home" : "page";
   const fn = { home: viewHome, capture: viewCapture, people: viewPeople, person: viewPerson, review: viewReview, settings: viewSettings, categories: viewCategories, calendar: viewCalendar }[r.name] || viewHome;
   if (!state.ready && r.name !== "settings") {
     view.replaceChildren(h("div", { class: "empty" }, h("span", { class: "emoji" }, "⏳"), "Loading…"));
@@ -273,10 +278,7 @@ function render(force) {
 function updateTabs(r) {
   const tab = r.name === "person" ? "people" : r.name;
   document.querySelectorAll("#tabs a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
-  const n = rv.dueQueue(state.people).length;
-  const b = document.getElementById("review-badge");
-  b.hidden = !n;
-  b.textContent = n > 99 ? "99+" : n;
+  hideSplash();
 }
 
 /* ============================================================
@@ -312,55 +314,41 @@ function installBanner() {
   return null;
 }
 
-// Size the ring to the space left on screen, so the home page never scrolls.
-let donutObserver = null;
-function fitDonut(wrap) {
-  donutObserver?.disconnect();
+// The redspecs glasses, coloured by CSS (the PNG is used as a mask).
+const logo = (cls = "") => h("span", { class: "logo-mark " + cls, "aria-hidden": "true" });
+const cornerLogo = () => h("button", { class: "corner-logo", "aria-label": "Settings", onclick: () => go("settings") }, logo());
+
+// Outer ring = 116.4% of the screen width (as designed), shrunk if the phone is short.
+let ringObserver = null;
+function fitRings(el) {
+  ringObserver?.disconnect();
   const apply = () => {
-    const r = wrap.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
     if (!r.width || !r.height) return;
-    wrap.style.setProperty("--donut", `${Math.floor(Math.min(r.width, r.height - 16, 380))}px`);
+    el.style.setProperty("--ring", `${Math.round(Math.min(r.width * 1.164, r.height + 83))}px`);
   };
-  if ("ResizeObserver" in window) {
-    donutObserver = new ResizeObserver(apply);
-    donutObserver.observe(wrap);
-  }
+  if ("ResizeObserver" in window) { ringObserver = new ResizeObserver(apply); ringObserver.observe(el); }
   requestAnimationFrame(apply);
-  return wrap;
+  return el;
 }
 
 function viewHome() {
   const ev = activeEvent();
-  const due = rv.dueQueue(state.people).length;
-
+  const endEvent = () => {
+    if (!ev) return;
+    if (confirm(`End “${ev.name}”?`)) { store.putEvent({ ...ev, endedAt: Date.now() }); toast("Event ended"); }
+  };
   return h("div", { class: "home" },
-    h("div", { class: "topbar" },
-      h("div", { class: "brand" }, h("span", { class: "logo" }), APP_NAME),
-      iconBtn("gear", "Settings", () => go("settings"))),
-
-    state.error && h("div", { class: "banner error" }, state.error),
-
-    h("h1", { class: "hero" }, "Met", h("br"), "someone?"),
-
-    // Fixed-height slot: the running event sits here, so nothing else moves when it appears.
-    h("div", { class: "event-slot" },
-      ev
-        ? h("div", { class: "event-pill", style: colorStyle(eventColor(ev)) },
-            h("span", { class: "grow" }, ev.name, h("span", { class: "sub" }, ` · ${peopleIn(ev.id).length} met`)),
-            h("button", { class: "mini-btn", onclick: () => { store.putEvent({ ...ev, endedAt: Date.now() }); toast("Event ended"); } }, "End"))
-        : h("p", { class: "slot-hint" }, "Tap right after you meet someone")),
-
-    fitDonut(h("div", { class: "donut-wrap" },
-      h("button", { class: "donut", id: "big-btn", "aria-label": "Met someone — add a name", onclick: () => { haptic(); go("capture"); } },
-        h("span", { class: "donut-plus", "aria-hidden": "true" }, "+")))),
-
-    h("div", { class: "stats" },
-      h("button", { class: "stat", onclick: () => go("people") }, h("span", { class: "k" }, "Met"), h("span", { class: "v" }, state.people.length)),
-      h("button", { class: "stat review", onclick: () => go("review") }, h("span", { class: "k" }, "Review"), h("span", { class: "v" }, due))),
-
-    installBanner(),
-    state.mode === "local" && state.people.length === 0 &&
-      h("p", { class: "small-print", style: "text-align:center;margin:8px 0 0" }, "Local mode: names are saved on this device only."));
+    cornerLogo(),
+    h("h1", { class: "d-title" }, "did you", h("br"), "meet someone?"),
+    fitRings(h("button", { class: "rings", id: "big-btn", "aria-label": "Met someone — add a name", onclick: () => { haptic(); go("capture"); } },
+      h("i", { class: "r1" }), h("i", { class: "r2" }), h("i", { class: "r3" }), h("i", { class: "r4" }, logo()))),
+    h("div", { class: "home-foot" },
+      h("button", { class: "met-count", onclick: () => go("people") },
+        h("span", { class: "met-k" }, "met"),
+        h("span", { class: "met-v" }, String(state.people.length).padStart(3, "0"))),
+      h("button", { class: "home-box", "aria-label": ev ? `Current event: ${ev.name}` : "No event running", onclick: endEvent }, ev ? ev.name : "")),
+    state.error && h("div", { class: "banner error" }, state.error));
 }
 
 /* ============================================================
@@ -370,50 +358,23 @@ function viewHome() {
 let capture = null;
 
 function freshCapture() {
-  const ev = activeEvent();
-  return {
-    step: ev ? "names" : "relation",
-    eventId: ev?.id || null,
-    relation: ev?.relation || null,
-    names: [],
-    draft: "",
-    i: 0,
-    items: [], // per person: { name, vibe, seeAgain, hooks: [] }
-    pos: getPosition(),
-  };
+  return { step: "names", relation: null, names: [], draft: "", i: 0, items: [], pos: getPosition() };
 }
 
 function viewCapture() {
   const c = capture || (capture = freshCapture());
-  const cancel = () => { capture = null; go(""); };
-  const back = (step) => () => { c.step = step; rerenderCapture(); };
-  const head = (backFn, progress) =>
-    h("div", { class: "step-head" },
-      backFn ? iconBtn("back", "Back", backFn) : iconBtn("close", "Cancel", cancel),
-      h("span", { class: "progress" }, progress || ""),
-      backFn ? iconBtn("close", "Cancel", cancel) : h("span", { style: "width:44px" }));
+  const screen = (...kids) => h("div", { class: "cap" }, cornerLogo(), ...kids);
+  const title = (a, b) => h("h1", { class: "d-title" }, a, h("br"), b);
+  // Invisible flexible gaps, weighted like the gaps in the design frames.
+  const gap = (w) => h("span", { class: "gap", style: `flex-grow:${w}`, "aria-hidden": "true" });
 
-  /* --- Relation (once per event) --- */
-  if (c.step === "relation") {
-    return h("div", { class: "capture" },
-      head(null),
-      h("h1", {}, "What's the occasion?"),
-      h("p", { class: "sub" }, "Asked once — everyone you add in the next few hours joins this event."),
-      h("div", { class: "grid2" },
-        categories().map((r) =>
-          h("button", { class: "tile cat-tile", style: colorStyle(catColor(r)), onclick: () => { haptic(); c.relation = r.id; c.eventId = null; c.step = "names"; rerenderCapture(); } },
-            h("i", { class: "cat-dot" }), r.label))),
-      h("p", { class: "hint", style: "margin-top:16px" }, h("button", { class: "link-btn", onclick: () => go("categories") }, "Edit categories")));
-  }
-
-  /* --- Names --- */
+  /* --- 1. Name(s) --- */
   if (c.step === "names") {
-    const ev = c.eventId && store.getEvent(c.eventId);
     const input = h("input", {
-      class: "name-input", id: "name-input", type: "text", placeholder: "Their name",
+      class: "line-input name", id: "name-input", type: "text", placeholder: "their name",
       autocomplete: "off", autocorrect: "off", autocapitalize: "words", spellcheck: "false",
-      enterkeyhint: "next", "aria-label": "Name", value: c.draft,
-      oninput: (e) => { c.draft = e.target.value; nextBtn.disabled = !(c.draft.trim() || c.names.length); },
+      enterkeyhint: "next", "aria-label": "Their name", value: c.draft,
+      oninput: (e) => { c.draft = e.target.value; },
       onkeydown: (e) => { if (e.key === "Enter") { e.preventDefault(); next(); } },
     });
     const addAnother = () => {
@@ -425,92 +386,76 @@ function viewCapture() {
       const n = c.draft.trim();
       if (n) { c.names.push(n); c.draft = ""; }
       if (!c.names.length) return input.focus();
-      c.items = c.names.map((name) => c.items.find((it) => it.name === name) || { name, vibe: null, seeAgain: false, hooks: [] });
+      c.items = c.names.map((name) => c.items.find((it) => it.name === name) || { name, hooks: [] });
       c.i = 0;
-      c.step = "vibe";
+      c.step = "occasion";
       rerenderCapture();
     };
-    const nextBtn = h("button", { class: "btn primary", onclick: next, disabled: !(c.draft.trim() || c.names.length) }, "Next");
-
-    const el = h("div", { class: "capture" },
-      head(null),
-      h("h1", {}, c.names.length ? "Anyone else?" : "Name?"),
-      h("p", { class: "sub" },
-        ev ? [colorDot(eventColor(ev)), `${ev.name} · `, h("button", { class: "link-btn", onclick: () => { c.step = "relation"; c.eventId = null; rerenderCapture(); } }, "new event")]
-           : [colorDot(catColor(rel(c.relation))), `New ${rel(c.relation).label} event · `, h("button", { class: "link-btn", onclick: back("relation") }, "change")]),
-      c.names.length > 0 && h("div", { class: "added" },
-        c.names.map((n, idx) => h("button", { class: "chip on", "aria-label": `Remove ${n}`, onclick: () => { c.names.splice(idx, 1); rerenderCapture(); } }, n, h("span", { class: "x" }, "✕")))),
-      input,
-      h("div", { class: "actions" },
-        h("button", { class: "btn secondary", onclick: addAnother }, "+ another"),
-        nextBtn));
+    const el = screen(
+      title("what’s", "their name?"),
+      gap(150),
+      h("div", { class: "cap-mid" },
+        input,
+        h("button", { class: "another", onclick: addAnother }, c.names.length ? `+ another · ${c.names.length} added` : "+ another")),
+      h("span", { class: "gap fixed", style: "height:54px" }),
+      h("button", { class: "bar", onclick: next }, "Next"),
+      gap(245));
     queueMicrotask(() => input.focus());
     return el;
   }
 
+  /* --- 2. Occasion --- */
+  if (c.step === "occasion") {
+    const pick = (cat) => () => { haptic(); c.relation = cat.id; c.i = 0; c.step = "hook"; rerenderCapture(); };
+    return screen(
+      title("what", "occasion?"),
+      h("div", { class: "stripes" },
+        categories().map((cat) => h("button", { class: "stripe", style: colorStyle(catColor(cat)), onclick: pick(cat) }, cat.label.toLowerCase()))),
+      h("button", { class: "edit-cats", onclick: () => go("categories") }, "edit categories"));
+  }
+
+  /* --- 3. Hooks, one screen per person --- */
   const item = c.items[c.i];
-  const progress = c.items.length > 1 ? `${c.i + 1} of ${c.items.length}` : "";
-
-  /* --- Vibe --- */
-  if (c.step === "vibe") {
-    const star = h("button", {
-      class: "star-toggle" + (item.seeAgain ? " on" : ""), "aria-pressed": String(item.seeAgain),
-      onclick: () => { item.seeAgain = !item.seeAgain; star.classList.toggle("on", item.seeAgain); star.setAttribute("aria-pressed", String(item.seeAgain)); haptic(8); },
-    }, h("span", { class: "s" }, "⭐"), "Want to see again");
-    const pick = (v) => () => { haptic(); item.vibe = v; c.step = "hook"; rerenderCapture(); };
-    return h("div", { class: "capture" },
-      head(c.i === 0 ? back("names") : () => { c.i--; c.step = "hook"; rerenderCapture(); }, progress),
-      h("h1", {}, `How was it with ${item.name}?`),
-      star,
-      h("div", { class: "vibes" },
-        VIBES.map((v) => h("button", { class: "vibe", onclick: pick(v.id) }, h("span", { class: "emoji" }, v.emoji), v.label))),
-      h("div", { class: "actions bottom" }, h("button", { class: "btn secondary", onclick: pick(null) }, "Skip")));
-  }
-
-  /* --- Hook --- */
-  if (c.step === "hook") {
-    const isLast = c.i === c.items.length - 1;
-    const custom = recentCustomHooks().filter((x) => !HOOK_CHIPS.includes(x));
-    const all = [...new Set([...item.hooks.filter((x) => !HOOK_CHIPS.includes(x) && !custom.includes(x)), ...custom, ...HOOK_CHIPS])];
-    const chips = h("div", { class: "chips hook-chips" },
-      all.map((hk) => {
-        const b = h("button", {
-          class: "chip" + (item.hooks.includes(hk) ? " on" : ""),
-          onclick: () => {
-            const i = item.hooks.indexOf(hk);
-            if (i >= 0) item.hooks.splice(i, 1);
-            else item.hooks.push(hk);
-            b.classList.toggle("on", i < 0);
-            haptic(6);
-          },
-        }, hk);
-        return b;
-      }));
-    const addText = () => {
-      const t = text.value.trim();
-      if (t && !item.hooks.includes(t)) item.hooks.unshift(t);
-      text.value = "";
-    };
-    const text = h("input", {
-      class: "text-input", type: "text", placeholder: "Something memorable…",
-      autocomplete: "off", enterkeyhint: "done", "aria-label": "Something memorable",
-      onkeydown: (e) => { if (e.key === "Enter") { e.preventDefault(); addText(); rerenderCapture(); } },
-    });
-    const finish = () => {
-      addText();
-      if (isLast) saveCapture();
-      else { c.i++; c.step = "vibe"; rerenderCapture(); }
-    };
-    return h("div", { class: "capture" },
-      head(back("vibe"), progress),
-      h("h1", {}, `What will help you remember ${item.name}?`),
-      h("p", { class: "sub" }, "Tap anything that fits, or write one line. Optional."),
+  const isLast = c.i === c.items.length - 1;
+  const custom = recentCustomHooks().filter((x) => !HOOK_CHIPS.includes(x));
+  const all = [...new Set([...item.hooks.filter((x) => !HOOK_CHIPS.includes(x) && !custom.includes(x)), ...custom, ...HOOK_CHIPS])];
+  const text = h("input", {
+    class: "line-input hook", type: "text", placeholder: "something memorable",
+    autocomplete: "off", enterkeyhint: "done", "aria-label": "Something memorable",
+    onkeydown: (e) => { if (e.key === "Enter") { e.preventDefault(); addText(); rerenderCapture(); } },
+  });
+  const addText = () => {
+    const t = text.value.trim();
+    if (t && !item.hooks.includes(t)) item.hooks.unshift(t);
+    text.value = "";
+  };
+  const finish = () => {
+    addText();
+    if (isLast) saveCapture();
+    else { c.i++; rerenderCapture(); }
+  };
+  return screen(
+    title("how’s", `${item.name}?`),
+    gap(92),
+    h("div", { class: "cap-mid hooks-mid" },
       text,
-      chips,
-      h("div", { class: "actions bottom" },
-        h("button", { class: "btn primary", onclick: finish }, isLast ? "Save" : "Next person")));
-  }
-  return h("div");
+      h("div", { class: "tags" },
+        all.map((hk) => {
+          const b = h("button", {
+            class: "tag" + (item.hooks.includes(hk) ? " on" : ""), "aria-pressed": String(item.hooks.includes(hk)),
+            onclick: () => {
+              const i = item.hooks.indexOf(hk);
+              if (i >= 0) item.hooks.splice(i, 1); else item.hooks.push(hk);
+              b.classList.toggle("on", i < 0);
+              b.setAttribute("aria-pressed", String(i < 0));
+              haptic(6);
+            },
+          }, hk);
+          return b;
+        }))),
+    gap(91),
+    h("button", { class: "bar", onclick: finish }, isLast ? "Save" : "Next"),
+    gap(130));
 }
 
 function rerenderCapture() {
@@ -562,7 +507,8 @@ function locationProblem(error) {
 function saveCapture() {
   const c = capture;
   const now = Date.now();
-  let ev = c.eventId && store.getEvent(c.eventId);
+  const running = activeEvent(now);
+  let ev = running && rel(running.relation).id === rel(c.relation).id ? running : null;
   let createdEvent = false;
   if (!ev) {
     ev = {
@@ -587,8 +533,8 @@ function saveCapture() {
       name: it.name,
       eventId: ev.id,
       relation: ev.relation,
-      vibe: it.vibe,
-      seeAgain: it.seeAgain,
+      vibe: null,
+      seeAgain: false,
       hooks: it.hooks,
       note: "",
       color: null,
@@ -617,7 +563,7 @@ function saveCapture() {
   const names = c.items.map((it) => it.name);
   capture = null;
   go("");
-  toast(names.length === 1 ? `Saved ${names[0]} ✓` : `Saved ${names.length} people ✓`, {
+  toast(names.length === 1 ? `Saved ${names[0]}` : `Saved ${names.length} people`, {
     label: "Undo",
     run: () => {
       ids.forEach((id) => store.deletePerson(id));
@@ -1057,8 +1003,8 @@ function viewSettings() {
       const btn = e.submitter || form.querySelector("button[type=submit]");
       btn.disabled = true;
       try {
-        if (authMode === "create") { await store.createAccount(email.value.trim(), pw.value); toast("Account created ✓"); }
-        else { await store.signIn(email.value.trim(), pw.value); toast("Signed in ✓"); }
+        if (authMode === "create") { await store.createAccount(email.value.trim(), pw.value); toast("Account created"); }
+        else { await store.signIn(email.value.trim(), pw.value); toast("Signed in"); }
         render(true);
       } catch (x) {
         err.textContent = x.message;
@@ -1321,6 +1267,23 @@ function viewCategories() {
     h("div", { class: "section stack" },
       h("div", { class: "lbl" }, "Add a category"),
       h("div", { class: "row" }, addInput, h("button", { class: "btn primary small", onclick: add }, "Add"))));
+}
+
+/* ============================================================
+   Splash (the purple loading screen): stays until data is ready, at least ~0.9s
+   ============================================================ */
+
+const splashStart = performance.now();
+let splashGone = false;
+function hideSplash() {
+  if (splashGone || !state.ready) return;
+  splashGone = true;
+  const el = document.getElementById("splash");
+  if (!el) return;
+  setTimeout(() => {
+    el.classList.add("out");
+    setTimeout(() => el.remove(), 400);
+  }, Math.max(0, 900 - (performance.now() - splashStart)));
 }
 
 /* ============================================================

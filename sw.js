@@ -1,6 +1,6 @@
 // Service worker: makes NameApp open instantly and work offline.
 // Bump VERSION whenever app files change so users get the update.
-const VERSION = "nameapp-v9";
+const VERSION = "redspecs-v10";
 const SHELL = [
   "./",
   "index.html",
@@ -11,8 +11,14 @@ const SHELL = [
   "js/review.js",
   "js/firebase-config.js",
   "manifest.webmanifest",
-  "icons/icon.svg",
   "icons/icon-192.png",
+  "img/glasses.png",
+  "fonts/IBMPlexMono-Light.woff2",
+  "fonts/IBMPlexMono-Regular.woff2",
+  "fonts/IBMPlexMono-Bold.woff2",
+  "fonts/IBMPlexSans-Bold.woff2",
+  "fonts/DejaVuSansMono-counter.woff",
+  "fonts/DejaVuSansMono-Bold-counter.woff",
 ];
 
 self.addEventListener("install", (e) => {
