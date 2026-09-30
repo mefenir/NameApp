@@ -1,6 +1,6 @@
 // Service worker: makes NameApp open instantly and work offline.
 // Bump VERSION whenever app files change so users get the update.
-const VERSION = "redspecs-v10";
+const VERSION = "redspecs-v11";
 const SHELL = [
   "./",
   "index.html",

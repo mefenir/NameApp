@@ -8,7 +8,7 @@ import * as rv from "./review.js";
    ============================================================ */
 
 const APP_NAME = "redspecs";
-const APP_VERSION = "10";
+const APP_VERSION = "11";
 const EVENT_WINDOW_MS = 4 * 60 * 60 * 1000; // captures within 4h join the current event
 
 // Default categories. Users can rename them, change the colour and add their own (stored in "categories").
@@ -318,36 +318,22 @@ function installBanner() {
 const logo = (cls = "") => h("span", { class: "logo-mark " + cls, "aria-hidden": "true" });
 const cornerLogo = () => h("button", { class: "corner-logo", "aria-label": "Settings", onclick: () => go("settings") }, logo());
 
-// Outer ring = 116.4% of the screen width (as designed), shrunk if the phone is short.
-let ringObserver = null;
-function fitRings(el) {
-  ringObserver?.disconnect();
-  const apply = () => {
-    const r = el.getBoundingClientRect();
-    if (!r.width || !r.height) return;
-    el.style.setProperty("--ring", `${Math.round(Math.min(r.width * 1.164, r.height + 83))}px`);
-  };
-  if ("ResizeObserver" in window) { ringObserver = new ResizeObserver(apply); ringObserver.observe(el); }
-  requestAnimationFrame(apply);
-  return el;
-}
-
 function viewHome() {
   const ev = activeEvent();
   const endEvent = () => {
     if (!ev) return;
     if (confirm(`End “${ev.name}”?`)) { store.putEvent({ ...ev, endedAt: Date.now() }); toast("Event ended"); }
   };
-  return h("div", { class: "home" },
+  return h("div", { class: "stage home" },
     cornerLogo(),
     h("h1", { class: "d-title" }, "did you", h("br"), "meet someone?"),
-    fitRings(h("button", { class: "rings", id: "big-btn", "aria-label": "Met someone — add a name", onclick: () => { haptic(); go("capture"); } },
-      h("i", { class: "r1" }), h("i", { class: "r2" }), h("i", { class: "r3" }), h("i", { class: "r4" }, logo()))),
-    h("div", { class: "home-foot" },
-      h("button", { class: "met-count", onclick: () => go("people") },
-        h("span", { class: "met-k" }, "met"),
-        h("span", { class: "met-v" }, String(state.people.length).padStart(3, "0"))),
-      h("button", { class: "home-box", "aria-label": ev ? `Current event: ${ev.name}` : "No event running", onclick: endEvent }, ev ? ev.name : "")),
+    h("button", { class: "rings", id: "big-btn", "aria-label": "Met someone — add a name", onclick: () => { haptic(); go("capture"); } },
+      h("i", { class: "r1" }), h("i", { class: "r2" }), h("i", { class: "r3" }), h("i", { class: "r4" })),
+    logo("mid-logo"),
+    h("button", { class: "met-count", onclick: () => go("people") },
+      h("span", { class: "met-k" }, "met"),
+      h("span", { class: "met-v" }, String(state.people.length).padStart(3, "0"))),
+    h("button", { class: "home-box", "aria-label": ev ? `Current event: ${ev.name}` : "No event running", onclick: endEvent }, ev ? ev.name : ""),
     state.error && h("div", { class: "banner error" }, state.error));
 }
 
@@ -363,10 +349,8 @@ function freshCapture() {
 
 function viewCapture() {
   const c = capture || (capture = freshCapture());
-  const screen = (...kids) => h("div", { class: "cap" }, cornerLogo(), ...kids);
-  const title = (a, b) => h("h1", { class: "d-title" }, a, h("br"), b);
-  // Invisible flexible gaps, weighted like the gaps in the design frames.
-  const gap = (w) => h("span", { class: "gap", style: `flex-grow:${w}`, "aria-hidden": "true" });
+  const screen = (cls, ...kids) => h("div", { class: "stage cap " + cls }, cornerLogo(), ...kids);
+  const title = (a, b) => fitTitle(h("h1", { class: "d-title" }, a, h("br"), b));
 
   /* --- 1. Name(s) --- */
   if (c.step === "names") {
@@ -391,27 +375,25 @@ function viewCapture() {
       c.step = "occasion";
       rerenderCapture();
     };
-    const el = screen(
+    const el = screen("s-name",
       title("what’s", "their name?"),
-      gap(150),
-      h("div", { class: "cap-mid" },
-        input,
-        h("button", { class: "another", onclick: addAnother }, c.names.length ? `+ another · ${c.names.length} added` : "+ another")),
-      h("span", { class: "gap fixed", style: "height:54px" }),
-      h("button", { class: "bar", onclick: next }, "Next"),
-      gap(245));
+      input,
+      h("button", { class: "another", onclick: addAnother }, c.names.length ? `+  another · ${c.names.length} added` : "+  another"),
+      h("button", { class: "bar", onclick: next }, "Next"));
     queueMicrotask(() => input.focus());
     return el;
   }
 
   /* --- 2. Occasion --- */
   if (c.step === "occasion") {
+    const cats = categories();
     const pick = (cat) => () => { haptic(); c.relation = cat.id; c.i = 0; c.step = "hook"; rerenderCapture(); };
-    return screen(
+    const el = screen("s-occasion",
       title("what", "occasion?"),
-      h("div", { class: "stripes" },
-        categories().map((cat) => h("button", { class: "stripe", style: colorStyle(catColor(cat)), onclick: pick(cat) }, cat.label.toLowerCase()))),
-      h("button", { class: "edit-cats", onclick: () => go("categories") }, "edit categories"));
+      cats.map((cat, i) => h("button", { class: "stripe", style: `${colorStyle(catColor(cat))};--i:${i}`, onclick: pick(cat) }, cat.label.toLowerCase())),
+      h("button", { class: "edit-cats", style: `--i:${cats.length}`, onclick: () => go("categories") }, "edit categories"));
+    el.style.setProperty("--n", cats.length);
+    return el;
   }
 
   /* --- 3. Hooks, one screen per person --- */
@@ -434,28 +416,37 @@ function viewCapture() {
     if (isLast) saveCapture();
     else { c.i++; rerenderCapture(); }
   };
-  return screen(
+  return screen("s-hooks",
     title("how’s", `${item.name}?`),
-    gap(92),
-    h("div", { class: "cap-mid hooks-mid" },
-      text,
-      h("div", { class: "tags" },
-        all.map((hk) => {
-          const b = h("button", {
-            class: "tag" + (item.hooks.includes(hk) ? " on" : ""), "aria-pressed": String(item.hooks.includes(hk)),
-            onclick: () => {
-              const i = item.hooks.indexOf(hk);
-              if (i >= 0) item.hooks.splice(i, 1); else item.hooks.push(hk);
-              b.classList.toggle("on", i < 0);
-              b.setAttribute("aria-pressed", String(i < 0));
-              haptic(6);
-            },
-          }, hk);
-          return b;
-        }))),
-    gap(91),
-    h("button", { class: "bar", onclick: finish }, isLast ? "Save" : "Next"),
-    gap(130));
+    text,
+    h("div", { class: "tags" },
+      all.map((hk) => {
+        const b = h("button", {
+          class: "tag" + (item.hooks.includes(hk) ? " on" : ""), "aria-pressed": String(item.hooks.includes(hk)),
+          onclick: () => {
+            const i = item.hooks.indexOf(hk);
+            if (i >= 0) item.hooks.splice(i, 1); else item.hooks.push(hk);
+            b.classList.toggle("on", i < 0);
+            b.setAttribute("aria-pressed", String(i < 0));
+            haptic(6);
+          },
+        }, hk);
+        return b;
+      })),
+    h("button", { class: "bar", onclick: finish }, isLast ? "Save" : "Next"));
+}
+
+// Long names: shrink the title so it stays on two lines like the design.
+function fitTitle(el) {
+  requestAnimationFrame(() => {
+    const max = el.parentElement ? el.parentElement.clientWidth * (340 / 390) : 0;
+    if (!max) return;
+    el.style.fontSize = "";
+    let size = parseFloat(getComputedStyle(el).fontSize);
+    const min = size * 0.6;
+    while (el.scrollWidth > max + 1 && size > min) { size -= 1; el.style.fontSize = size + "px"; }
+  });
+  return el;
 }
 
 function rerenderCapture() {
