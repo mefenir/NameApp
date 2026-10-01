@@ -8,7 +8,7 @@ import * as rv from "./review.js";
    ============================================================ */
 
 const APP_NAME = "redspecs";
-const APP_VERSION = "11";
+const APP_VERSION = "12";
 const EVENT_WINDOW_MS = 4 * 60 * 60 * 1000; // captures within 4h join the current event
 
 // Default categories. Users can rename them, change the colour and add their own (stored in "categories").
@@ -34,6 +34,69 @@ const HOOK_CHIPS = [
   "tall", "short", "big smile", "glasses", "tattoo", "beard",
   "accent", "host", "colleague", "bald", "friend of a friend",
 ];
+
+// Library of memory hooks. Each "what's memorable" screen draws a fresh mix:
+// a couple that fit the occasion, then looks, manner, style and interests.
+const HOOK_LIBRARY = {
+  look: ["tall", "short", "glasses", "beard", "tattoo", "bald", "curly hair", "long hair", "red hair", "grey hair",
+    "freckles", "big smile", "dimples", "piercing", "moustache", "ponytail", "braids", "blue eyes", "very tall", "tanned"],
+  manner: ["accent", "loud laugh", "quiet", "funny", "deep voice", "talks fast", "calm", "charming", "shy", "storyteller",
+    "great listener", "big hugger", "very polite", "sarcastic"],
+  style: ["hat", "suit", "sneakers", "leather jacket", "colourful", "all black", "big earrings", "denim", "cap", "scarf",
+    "bright shoes", "nice watch", "glitter", "stripes"],
+  interests: ["runner", "dog person", "cat person", "cyclist", "musician", "cook", "traveller", "gamer", "climber", "bookworm",
+    "artist", "surfer", "gardener", "coffee nerd", "football fan", "dancer", "photographer", "yoga", "new parent", "vegan"],
+  friend: ["friend of a friend", "host", "plus-one", "old classmate", "flatmate", "neighbour", "birthday person"],
+  family: ["cousin", "in-law", "aunt", "uncle", "partner's family", "godparent", "family friend"],
+  work: ["colleague", "client", "manager", "new hire", "recruiter", "supplier", "intern", "other team"],
+  club: ["coach", "teammate", "beginner", "organiser", "regular", "captain", "veteran"],
+  other: ["host", "neighbour", "friend of a friend", "new in town", "plus-one", "local"],
+};
+
+function seededRandom(seed) {
+  let x = 0;
+  for (const ch of String(seed)) x = (x * 31 + ch.charCodeAt(0)) >>> 0;
+  return () => { x = (x + 0x6d2b79f5) >>> 0; let t = x; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+function pickFrom(list, n, rnd, taken) {
+  const pool = list.filter((x) => !taken.has(x));
+  const out = [];
+  while (pool.length && out.length < n) out.push(pool.splice(Math.floor(rnd() * pool.length), 1)[0]);
+  out.forEach((x) => taken.add(x));
+  return out;
+}
+// A varied set of hooks for one person, ordered by priority (first ones are kept if space runs out).
+function hookPool(categoryId, seed) {
+  const rnd = seededRandom(seed);
+  const taken = new Set();
+  const context = HOOK_LIBRARY[categoryId] || HOOK_LIBRARY.other;
+  return [
+    ...pickFrom(context, 2, rnd, taken),
+    ...pickFrom(HOOK_LIBRARY.look, 4, rnd, taken),
+    ...pickFrom(HOOK_LIBRARY.manner, 2, rnd, taken),
+    ...pickFrom(HOOK_LIBRARY.interests, 3, rnd, taken),
+    ...pickFrom(HOOK_LIBRARY.style, 2, rnd, taken),
+    ...pickFrom(HOOK_LIBRARY.look, 4, rnd, taken),
+    ...pickFrom(HOOK_LIBRARY.interests, 3, rnd, taken),
+  ];
+}
+// Pack hooks into at most 4 rows of the 340.6pt tag area (Plex Mono Bold 19.7pt = 11.82pt per character).
+function packTags(list, maxRows = 4) {
+  const W = 340.6, GAP = 12.7, w = (t) => t.length * 11.82 + 23;
+  const rows = [];
+  for (const t of list) {
+    if (w(t) > W) continue;
+    let row = rows.find((r) => r.width + GAP + w(t) <= W);
+    if (!row) {
+      if (rows.length >= maxRows) continue;
+      row = { width: -GAP, items: [] };
+      rows.push(row);
+    }
+    row.items.push(t);
+    row.width += GAP + w(t);
+  }
+  return rows.map((r) => r.items);
+}
 const COLORS = [
   { id: "red", v: "#e5484d" }, { id: "orange", v: "#f08c3a" }, { id: "yellow", v: "#f2c230" },
   { id: "green", v: "#46a758" }, { id: "blue", v: "#3e7be0" }, { id: "purple", v: "#8e4ec6" },
@@ -330,10 +393,11 @@ function viewHome() {
     h("button", { class: "rings", id: "big-btn", "aria-label": "Met someone — add a name", onclick: () => { haptic(); go("capture"); } },
       h("i", { class: "r1" }), h("i", { class: "r2" }), h("i", { class: "r3" }), h("i", { class: "r4" })),
     logo("mid-logo"),
-    h("button", { class: "met-count", onclick: () => go("people") },
-      h("span", { class: "met-k" }, "met"),
-      h("span", { class: "met-v" }, String(state.people.length).padStart(3, "0"))),
-    h("button", { class: "home-box", "aria-label": ev ? `Current event: ${ev.name}` : "No event running", onclick: endEvent }, ev ? ev.name : ""),
+    h("div", { class: "home-foot" },
+      h("button", { class: "met-count", onclick: () => go("people") },
+        h("span", { class: "met-k" }, "met"),
+        h("span", { class: "met-v" }, String(state.people.length).padStart(3, "0"))),
+      h("button", { class: "home-box", "aria-label": ev ? `Current event: ${ev.name}` : "No event running", onclick: endEvent }, ev ? ev.name : "")),
     state.error && h("div", { class: "banner error" }, state.error));
 }
 
@@ -344,7 +408,7 @@ function viewHome() {
 let capture = null;
 
 function freshCapture() {
-  return { step: "names", relation: null, names: [], draft: "", i: 0, items: [], pos: getPosition() };
+  return { step: "names", relation: null, names: [], draft: "", i: 0, items: [], started: Date.now(), pos: getPosition() };
 }
 
 function viewCapture() {
@@ -370,7 +434,7 @@ function viewCapture() {
       const n = c.draft.trim();
       if (n) { c.names.push(n); c.draft = ""; }
       if (!c.names.length) return input.focus();
-      c.items = c.names.map((name) => c.items.find((it) => it.name === name) || { name, hooks: [] });
+      c.items = c.names.map((name) => c.items.find((it) => it.name === name) || { name, hooks: [], pool: null });
       c.i = 0;
       c.step = "occasion";
       rerenderCapture();
@@ -387,7 +451,7 @@ function viewCapture() {
   /* --- 2. Occasion --- */
   if (c.step === "occasion") {
     const cats = categories();
-    const pick = (cat) => () => { haptic(); c.relation = cat.id; c.i = 0; c.step = "hook"; rerenderCapture(); };
+    const pick = (cat) => () => { haptic(); if (c.relation !== cat.id) c.items.forEach((it) => (it.pool = null)); c.relation = cat.id; c.i = 0; c.step = "hook"; rerenderCapture(); };
     const el = screen("s-occasion",
       title("what", "occasion?"),
       cats.map((cat, i) => h("button", { class: "stripe", style: `${colorStyle(catColor(cat))};--i:${i}`, onclick: pick(cat) }, cat.label.toLowerCase())),
@@ -399,8 +463,11 @@ function viewCapture() {
   /* --- 3. Hooks, one screen per person --- */
   const item = c.items[c.i];
   const isLast = c.i === c.items.length - 1;
-  const custom = recentCustomHooks().filter((x) => !HOOK_CHIPS.includes(x));
-  const all = [...new Set([...item.hooks.filter((x) => !HOOK_CHIPS.includes(x) && !custom.includes(x)), ...custom, ...HOOK_CHIPS])];
+  // A fresh mix from the library for each person (stable while on this screen).
+  if (!item.pool) item.pool = hookPool(rel(c.relation).id, `${item.name}|${c.started}|${c.i}`);
+  const custom = recentCustomHooks().slice(0, 2);
+  const typed = item.hooks.filter((x) => !item.pool.includes(x));
+  const rowsOfTags = packTags([...new Set([...typed, ...item.hooks, ...custom, ...item.pool])]);
   const text = h("input", {
     class: "line-input hook", type: "text", placeholder: "something memorable",
     autocomplete: "off", enterkeyhint: "done", "aria-label": "Something memorable",
@@ -420,7 +487,7 @@ function viewCapture() {
     title("how’s", `${item.name}?`),
     text,
     h("div", { class: "tags" },
-      all.map((hk) => {
+      rowsOfTags.map((row) => h("div", { class: "tag-row" }, row.map((hk) => {
         const b = h("button", {
           class: "tag" + (item.hooks.includes(hk) ? " on" : ""), "aria-pressed": String(item.hooks.includes(hk)),
           onclick: () => {
@@ -432,7 +499,7 @@ function viewCapture() {
           },
         }, hk);
         return b;
-      })),
+      })))),
     h("button", { class: "bar", onclick: finish }, isLast ? "Save" : "Next"));
 }
 
@@ -726,6 +793,8 @@ function card(p, redraw) {
     const root = e.currentTarget.closest(".pcard");
     if (root?.dataset.swiped) return;
     if (root?.dataset.revealed) { delete root.dataset.revealed; root.querySelector(".pc-front").style.transform = ""; return; }
+    if (isOpen) commitCard(p.id);
+    else if (openCard) commitCard(openCard);
     openCard = isOpen ? null : p.id; haptic(6); redraw();
   };
 
@@ -734,7 +803,7 @@ function card(p, redraw) {
     h("span", { class: "pc-event" }, ev ? ev.name : c.label));
 
   if (!isOpen) {
-    return swipeable(h("div", { class: "pcard", style: colorStyle(col) },
+    return swipeable(h("div", { class: "pcard", "data-id": p.id, style: colorStyle(col) },
       h("button", { class: "pc-delete", "aria-label": `Delete ${p.name}`, onclick: () => deletePersonWithUndo(p) }, "Delete"),
       h("div", { class: "pc-front" }, head)), p);
   }
@@ -742,25 +811,69 @@ function card(p, redraw) {
   const loc = p.location?.lat != null ? p.location : null;
   const place = placeLine(p.location);
   const row = (k, val) => val && h("div", { class: "pc-row" }, h("span", { class: "pc-k" }, k), h("span", { class: "pc-v" }, val));
+  const d = cardDraft(p);
+
+  const hookInput = h("input", {
+    class: "pc-input", type: "text", placeholder: "add something memorable", enterkeyhint: "done", "aria-label": "Add something memorable",
+    onkeydown: (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const t = e.target.value.trim();
+      if (t && !d.hooks.includes(t)) d.hooks.push(t);
+      e.target.value = "";
+      redraw();
+    },
+    onblur: (e) => { const t = e.target.value.trim(); if (t && !d.hooks.includes(t)) d.hooks.push(t); },
+  });
 
   const body = h("div", { class: "pc-body" },
     row("When", `${fmtDay(p.createdAt)}, ${fmtTime(p.createdAt)}`),
     row("Where", place || (loc ? "Location saved" : "No location")),
-    row("How it was", v ? `${v.emoji} ${v.label}` : "—"),
     row("Category", c.label),
     h("div", { class: "pc-row stacked" },
       h("span", { class: "pc-k" }, "Remember"),
-      (p.hooks || []).length
-        ? h("span", { class: "pc-v hooks" }, p.hooks.join(" · "))
-        : h("span", { class: "pc-v faint" }, "Nothing yet")),
-    p.note && h("div", { class: "pc-row stacked" }, h("span", { class: "pc-k" }, "Notes"), h("span", { class: "pc-v" }, p.note)),
+      d.hooks.length > 0 && h("div", { class: "pc-hooks-edit" },
+        d.hooks.map((hk) => h("button", { class: "pc-hook", "aria-label": `Remove ${hk}`, onclick: () => { d.hooks = d.hooks.filter((x) => x !== hk); redraw(); } }, hk, h("span", { "aria-hidden": "true" }, " ✕")))),
+      hookInput),
+    h("div", { class: "pc-row stacked" },
+      h("span", { class: "pc-k" }, "Notes"),
+      h("textarea", { class: "pc-input pc-notes", rows: "2", placeholder: "anything else", "aria-label": "Notes", oninput: (e) => { d.note = e.target.value; } }, d.note)),
     loc && h("a", { class: "pc-map", href: mapLink(loc), target: "_blank", rel: "noopener", "aria-label": "Open in Maps" },
       h("iframe", { src: mapEmbedUrl(loc), title: "Where you met", loading: "lazy", tabindex: "-1" })),
     h("div", { class: "pc-btns" },
-      h("button", { class: "pc-btn" + (p.seeAgain ? " on" : ""), onclick: () => store.putPerson({ ...p, seeAgain: !p.seeAgain }) }, p.seeAgain ? "★ See again" : "☆ See again"),
-      h("button", { class: "pc-btn solid", onclick: () => go("person/" + p.id) }, "Edit")));
+      h("button", { class: "pc-btn" + (d.seeAgain ? " on" : ""), onclick: () => { d.seeAgain = !d.seeAgain; redraw(); } }, d.seeAgain ? "★ See again" : "☆ See again"),
+      h("button", { class: "pc-btn", onclick: () => { commitCard(p.id); go("person/" + p.id); } }, "More")),
+    h("button", { class: "pc-save", onclick: () => saveCard(p.id, redraw) }, "Save"));
 
-  return h("div", { class: "pcard open", style: colorStyle(col) }, h("div", { class: "pc-front" }, head, body));
+  return h("div", { class: "pcard open", "data-id": p.id, style: colorStyle(col) }, h("div", { class: "pc-front" }, head, body));
+}
+
+// Unsaved edits on an open card (kept if the list re-renders while you type).
+const cardDrafts = new Map();
+function cardDraft(p) {
+  if (!cardDrafts.has(p.id)) cardDrafts.set(p.id, { hooks: [...(p.hooks || [])], note: p.note || "", seeAgain: !!p.seeAgain });
+  return cardDrafts.get(p.id);
+}
+function commitCard(id) {
+  const d = cardDrafts.get(id);
+  const p = store.getPerson(id);
+  cardDrafts.delete(id);
+  if (!d || !p) return false;
+  const changed = d.note !== (p.note || "") || d.seeAgain !== !!p.seeAgain || d.hooks.join("|") !== (p.hooks || []).join("|");
+  if (changed) store.putPerson({ ...p, hooks: d.hooks, note: d.note.trim(), seeAgain: d.seeAgain });
+  return changed;
+}
+// Save: store the edits, fold the card back into the list and keep it in view.
+function saveCard(id, redraw) {
+  const active = document.activeElement;
+  if (active && active.classList?.contains("pc-input") && active.tagName === "INPUT") active.blur();
+  commitCard(id);
+  openCard = null;
+  haptic(15);
+  redraw();
+  const el = [...document.querySelectorAll(".pcard")].find((x) => x.dataset.id === id);
+  el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  toast("Saved");
 }
 
 function renameEvent(ev) {
